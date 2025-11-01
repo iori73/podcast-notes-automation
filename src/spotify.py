@@ -69,8 +69,16 @@
 # src/spotify.py
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from utils import load_config
 from datetime import datetime
+import yaml
+import os
+
+
+def load_config():
+    """設定ファイルを読み込む"""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+    with open(config_path, "r") as file:
+        return yaml.safe_load(file)
 
 
 class SpotifyClient:
@@ -130,9 +138,38 @@ class SpotifyClient:
             # 言語情報を取得（Spotifyは'en', 'ja'などのISO 639-1コードを使用）
             language = episode.get("language", "ja")
 
+            # 番組名を取得
+            show_name = episode.get("show", {}).get("name", "")
+
+            # カバー画像URLを取得（エピソード固有の画像を優先、なければ番組画像）
+            cover_image_url = ""
+
+            # まずエピソード固有の画像を確認
+            episode_images = episode.get("images", [])
+            if episode_images:
+                # 中程度のサイズ（300px前後）を優先、なければ最初の画像
+                cover_image_url = episode_images[0]["url"]  # デフォルト
+                for img in episode_images:
+                    if img.get("height") and 200 <= img["height"] <= 400:
+                        cover_image_url = img["url"]
+                        break
+
+            # エピソード固有の画像がない場合、番組画像を使用
+            if not cover_image_url:
+                show_images = episode.get("show", {}).get("images", [])
+                if show_images:
+                    # 中程度のサイズ（300px前後）を優先、なければ最初の画像
+                    cover_image_url = show_images[0]["url"]  # デフォルト
+                    for img in show_images:
+                        if img.get("height") and 200 <= img["height"] <= 400:
+                            cover_image_url = img["url"]
+                            break
+
             return {
                 "id": episode["id"],
                 "title": episode["name"],
+                "show_name": show_name,  # 番組名を追加
+                "cover_image_url": cover_image_url,  # カバー画像URLを追加
                 "description": episode["description"],
                 "release_date": episode["release_date"],
                 "duration_ms": episode["duration_ms"],
@@ -143,3 +180,38 @@ class SpotifyClient:
             print(f"Spotify APIエラー: {str(e)}")
             raise
 
+    def get_show_info(self, show_url):
+        """SpotifyのShow URLから番組情報を取得"""
+        try:
+            # URLから番組IDを抽出
+            show_id = show_url.split("/")[-1].split("?")[0]
+
+            # 番組情報を取得
+            show = self.sp.show(show_id)
+
+            # カバー画像URLを取得（複数サイズから適切なサイズを選択）
+            cover_image_url = ""
+            show_images = show.get("images", [])
+            if show_images:
+                # 中程度のサイズ（300px前後）を優先、なければ最初の画像
+                cover_image_url = show_images[0]["url"]  # デフォルト
+                for img in show_images:
+                    if img.get("height") and 200 <= img["height"] <= 400:
+                        cover_image_url = img["url"]
+                        break
+
+            return {
+                "id": show["id"],
+                "name": show["name"],
+                "description": show["description"],
+                "cover_image_url": cover_image_url,
+                "total_episodes": show["total_episodes"],
+                "publisher": show.get("publisher", ""),
+                "language": (
+                    show.get("languages", ["ja"])[0] if show.get("languages") else "ja"
+                ),
+            }
+
+        except Exception as e:
+            print(f"Spotify Show APIエラー: {str(e)}")
+            raise

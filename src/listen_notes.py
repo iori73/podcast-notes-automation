@@ -10,7 +10,7 @@ class ListenNotesClient:
     def __init__(self):
         self.config = load_config()
         self.base_url = "https://listen-api.listennotes.com/api/v2"
-        self.download_dir = Path('downloads')
+        self.download_dir = Path('data/downloads')
         self.download_dir.mkdir(exist_ok=True)
         self.language = "Japanese"
 

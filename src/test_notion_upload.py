@@ -1,5 +1,6 @@
-from notion_client import NotionClient
+from integrations.notion_client import NotionClient
 from pathlib import Path
+
 
 def upload_episode_to_notion(md_file_path):
     """エピソードの .md ファイルを読み込んで Notion にアップロード"""
@@ -18,6 +19,7 @@ def upload_episode_to_notion(md_file_path):
     # Notion に追加
     notion = NotionClient()
     notion.create_page(episode_title, markdown_content)
+
 
 # テスト用
 if __name__ == "__main__":

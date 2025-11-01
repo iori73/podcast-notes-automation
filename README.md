@@ -1,132 +1,182 @@
-# Podcast Notes Automation Project
+# 🎧 Podcast Notes Automation System
 
-This project is designed to **automatically generate notes for podcasts**. It supports processing both **Spotify URLs** and **local MP3 files**, extracting key information and creating summaries to streamline your podcast listening experience. This project can generate the basic information, a summary, a table of contents, and a transcription for a given podcast.
+**Spotify URL や MP3 ファイルからポッドキャストを自動で文字起こし・要約・構造化ノート生成するシステム**
 
-## Overview
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)
 
-This project automates the process of creating podcast notes by:
+## 🌟 主な機能
 
-*   **Extracting podcast information**: Retrieving details such as title, description, and audio URL from Spotify.
-*   **Downloading audio**: Downloading the audio file from a given URL.
-*   **Converting audio**: Converting the audio file to a suitable format (MP3) if necessary.
-*   **Generating transcriptions**: Transcribing the podcast audio into text.
-*   **Creating summaries**: Generating concise summaries of the podcast content.
+- **🎵 Spotify 統合**: Spotify URL から音声ダウンロード・処理
+- **🎵 ローカル処理**: MP3 ファイル直接処理
+- **🤖 AI 分析**: Gemini AI による要約・構造化
+- **💾 データベース**: 124 エピソード管理済み
+- **🌐 Web ダッシュボード**: Streamlit 製管理画面
+- **🔄 アカウント自動切り替え**: Summary.fm の月 5 回制限を自動回避（4 アカウント管理）
 
-It supports two primary processing paths:
+## ⚡ クイックスタート
 
-1.  **Processing from Spotify URL:** For podcasts available on Spotify, the project takes a Spotify episode URL as input and uses the Listen Notes API to download the audio file.
-2.  **Processing from Local MP3 File:** For podcasts not on Spotify or manually downloaded from Listen Notes, the project processes a locally stored MP3 file directly.
+### 1. 簡単実行（推奨）
 
-## File Structure
+```bash
+# Spotify URL 処理
+python scripts/run_spotify_processing.py
 
-Here's a breakdown of the project's file structure:
+# ローカル MP3 処理
+python scripts/run_local_processing.py
+
+# Web インターフェース
+python scripts/run_web_interface.py
+```
+
+### 2. 依存関係インストール
+
+```bash
+# 基本依存関係
+pip install -r config/requirements/base.txt
+
+# Web インターフェース用
+pip install -r config/requirements/web.txt
+
+# 開発用
+pip install -r config/requirements/dev.txt
+```
+
+### 3. 設定ファイル
+
+`config/config.yaml` を作成：
+
+```yaml
+spotify:
+  client_id: 'your_spotify_client_id'
+  client_secret: 'your_spotify_client_secret'
+listen_notes:
+  api_key: 'your_listen_notes_api_key'
+gemini:
+  api_key: 'your_gemini_api_key'
+```
+
+## 📁 プロジェクト構造
 
 ```
 podcast_notes_automation/
-├── src/                    # Source code
-│   ├── main.py             # Main application (Selenium, Gemini AI setup)
-│   ├── test_integration.py # Integration tests using Spotify URLs
-│   ├── test_local_audio.py # Tests for local MP3 file processing
-│   ├── audio_processor.py  # Audio processing class (MP4 to MP3 conversion)
-│   ├── local_audio.py      # Local audio file processing
-│   ├── listen_notes.py     # Listen Notes API client
-│   ├── spotify.py          # Spotify API client
-│   ├── summary_fm.py       # Transcription and summarization
-│   ├── audio_converter.py  # Audio conversion utilities (FFmpeg)
-│   ├── test_audio.py       # Tests audio conversion
-│   ├── test_gemini.py      # Tests Gemini AI API
-│   ├── test_summary.py     # Tests summary generation (Gemini AI)
-│   ├── test_summary_fm.py  # Tests SummaryFMProcessor class
-│   └── utils.py            # Utility functions (config loading)
-├── downloads/              # Downloaded audio files
-├── outputs/                # Generated transcriptions and summaries
-├── config/                 # Configuration files
-│   └── config.yaml         # API keys and settings
-├── venv/                   # Python virtual environment
-├── requirements.txt        # Python package dependencies
-└── README.md               # This file
+├── 🎯 scripts/              # 実行スクリプト
+├── 🔧 core/                 # コア処理ロジック
+│   ├── processors/          # メイン処理器
+│   └── transcription/       # 文字起こしエンジン
+├── 🔌 integrations/         # 外部API統合
+├── 💾 database/             # データベース管理
+├── 🌐 web/                  # Web インターフェース
+├── 🧪 tests/                # テストファイル
+├── ⚙️  config/               # 設定・依存関係
+├── 📊 data/                 # データファイル
+└── 📖 docs/                 # ドキュメント
 ```
 
-## Key Components
+## 🚀 使用方法
 
-*   **API Clients:**
-    *   `spotify.py`: Interacts with the Spotify API to retrieve podcast information.
-    *   `listen_notes.py`: Uses the Listen Notes API to download audio files.
-*   **Audio Processing:**
-    *   `audio_processor.py`: Handles audio file conversions (e.g., MP4 to MP3).
-    *   `audio_converter.py`: Provides audio conversion utilities using FFmpeg.
-    *   `local_audio.py`: Manages processing of local audio files.
-*   **Text Processing:**
-    *   `summary_fm.py`: Handles transcription and summarization of audio.
-*   **Tests:**
-    *   `test_integration.py`: Tests the end-to-end process using Spotify URLs.
-    *   `test_local_audio.py`: Tests the processing of local audio files.
-    *   Other `test_*.py` files: Test individual components.
+### Spotify URL 処理
 
-## Usage and Important Notes
+```python
+# core/processors/spotify_processor.py で URL を編集
+spotify_url = "https://open.spotify.com/episode/YOUR_EPISODE_ID"
 
-### 1. Audio Input Methods
+# 実行
+python scripts/run_spotify_processing.py
+```
 
-This project supports two methods for audio input:
+### ローカル MP3 処理
 
-*   **A) Spotify URL Processing:** Use this method for podcasts publicly available on Spotify.
+```python
+# core/processors/local_processor.py でパスを編集
+mp3_path = Path("data/downloads/your_audio.mp3")
 
-    1.  Use `test_integration.py` to run the process.
-    2.  Modify the `spotify_url` variable in the `test_podcast_fetch()` function.
-    3.  Run `python src/test_integration.py`.
-*   **B) Local MP3 File Processing:** Use this method for podcasts that aren't available on Spotify or if you have manually downloaded the MP3 file from Listen Notes.
+# 実行
+python scripts/run_local_processing.py
+```
 
-    1.  Use `test_local_audio.py` to run the process.
-    2.  Modify the `mp3_path` variable in the `test_local_audio()` function with the path to the local MP3 file.
-    3.  Run `python src/test_local_audio.py`.
+### Web ダッシュボード
 
-### 2. Setting up the project
+```bash
+python scripts/run_web_interface.py
+# → http://localhost:8501
+```
 
-Before running the project, there are a few things you will need to set up.
+## 🔧 開発・カスタマイズ
 
-*   **A) Virtual Environments:** It's recommended to set up separate virtual environments for Spotify URL processing and local MP3 file processing. This is because there can be conflicts between the two.
+### テスト実行
 
-    1.  For Spotify URL processing:
+```bash
+# 統合テスト
+python -m pytest tests/integration/
 
-        ```
-        python3 -m venv venv_spotify
-        source venv_spotify/bin/activate
-        pip install -r requirements.txt
-        ```
-    2.  For local audio file processing:
+# 単体テスト
+python -m pytest tests/unit/
 
-        ```
-        python3 -m venv venv_local_audio
-        source venv_local_audio/bin/activate
-        pip install -r requirements.txt
-        ```
-*   **B) API Keys:** You'll need to obtain API keys for Spotify, Listen Notes, and Gemini AI and add them to the `config.yaml` file.
+# デバッグ
+python tests/debug/debug_sections.py
+```
 
-    ```yaml
-    spotify:
-      client_id: "your_spotify_client_id"
-      client_secret: "your_spotify_client_secret"
-    listen_notes:
-      api_key: "your_listen_notes_api_key"
-    gemini:
-      api_key: "your_gemini_api_key"
-    ```
-*   **C) Language Settings:** The project requires manual language setting changes in two files.
-    *   `listen_notes.py`: sets the language for searching episodes.
+### コードフォーマット
 
-        ```python
-        language = "Japanese"  # or "English"
-        ```
-    *   `summary_fm.py`: sets the language for transcription and summarization.
+```bash
+black .
+flake8 .
+```
 
-        ```python
-        select.select_by_value("Japanese") # or "English"
-        ```
+## 📊 システム概要
 
+### 処理フロー
 
-### 3. Important Notes
+1. **入力**: Spotify URL または MP3 ファイル
+2. **ダウンロード**: Listen Notes API 経由で音声取得
+3. **文字起こし**: Summary.fm (Selenium) で文字起こし
+4. **AI 処理**: Gemini で要約・構造化
+5. **保存**: SQLite + Markdown ファイル出力
 
-*   **Switching Between Processing Methods**: When switching between Spotify URL processing and local MP3 file processing, you may need to exit the terminal and rebuild the virtual environment.
-*   **403 Errors**: Even if data exists on LISTEN NOTES, a 403 error may occur when creating an MD file with `python src/test_integration.py`.
-*   **Separate Virtual Environments:** Due to potential conflicts, it's recommended to use separate virtual environments for `test_local_audio.py` and `test_integration.py`.
-*   **API Keys**: You need to configure the API keys for Spotify, Listen Notes, and Gemini AI in the `config.yaml` file.
+### アーキテクチャ
+
+- **コア**: `core/processors/` - メイン処理ロジック
+- **統合**: `integrations/` - Spotify, Listen Notes, AI APIs
+- **データ**: `database/` - SQLite データベース管理
+- **UI**: `web/streamlit/` - Streamlit ダッシュボード
+
+## 📈 現在の状況
+
+✅ **124 エピソード**登録済み  
+✅ **520 セクション**解析済み  
+✅ **2020 年〜2025 年**の範囲  
+✅ **日英対応**完了
+
+## 📖 詳細ドキュメント
+
+- [📋 セットアップガイド](docs/setup/)
+- [🎯 使用方法ガイド](docs/guides/)
+- [⚙️ 開発者向け](docs/development/)
+- [🌐 Web インターフェース](docs/guides/README_WEB_INTERFACE.md)
+- [🔄 アカウント自動切り替え](docs/ACCOUNT_AUTO_SWITCH.md) - Summary.fm の月 5 回制限回避機能
+- [📊 アカウント管理](docs/ACCOUNT_MANAGEMENT.md) - アカウント管理システムの詳細
+
+## 🤝 コントリビューション
+
+1. Fork プロジェクト
+2. Feature ブランチ作成 (`git checkout -b feature/AmazingFeature`)
+3. 変更をコミット (`git commit -m 'Add AmazingFeature'`)
+4. ブランチにプッシュ (`git push origin feature/AmazingFeature`)
+5. Pull Request 作成
+
+## 📄 ライセンス
+
+MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
+
+## 🔗 関連リンク
+
+- [Spotify Web API](https://developer.spotify.com/documentation/web-api/)
+- [Listen Notes API](https://www.listennotes.com/api/)
+- [Google Gemini AI](https://ai.google.dev/)
+- [Streamlit](https://streamlit.io/)
+
+---
+
+**作成**: 2024 年 12 月 | **更新**: 2024 年 12 月 | **バージョン**: 2.0.0

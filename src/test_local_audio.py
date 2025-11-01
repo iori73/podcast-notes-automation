@@ -268,10 +268,14 @@ def test_local_audio():
     processor = LocalAudioProcessor()
 
     # 対象のMP3ファイルのパス
-    mp3_path = Path("downloads/#357_国のイシューに対する解法を見つけようぜ.mp3")
+    # プロジェクトルートからの絶対パスを使用
+    project_root = Path(__file__).parent.parent
+    mp3_path = project_root / "data" / "downloads" / "傾聴と伝え方の本「まず、ちゃんと聴く。」を読んだ感想.mp3"  # 先頭にスペースがある
 
     # **MP3タイトルから言語を判定**
-    language = detect_language_from_title(mp3_path)
+    # language = detect_language_from_title(mp3_path)
+    # この音声は実際には日本語なので、明示的に日本語を指定
+    language = "Japanese"
 
     # MP3ファイルのパスを指定して処理
     results = processor.process_local_audio(str(mp3_path), language=language)  # 言語を渡す
