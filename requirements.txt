@@ -1,0 +1,21 @@
+# Podcast Notes Automation 依存パッケージ
+
+# Spotify API
+spotipy>=2.23.0
+
+# Web自動化（Summary.fm用）
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+
+# HTTPリクエスト
+requests>=2.31.0
+
+# Google Gemini AI（翻訳用）
+google-generativeai>=0.3.0
+
+# 設定ファイル読み込み
+pyyaml>=6.0
+
+# MP3メタデータ
+mutagen>=1.47.0
+

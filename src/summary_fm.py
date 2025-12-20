@@ -318,21 +318,44 @@ class SummaryFMProcessor:
                             text_ready = True
                             print(f"   ✅ 文字起こし完了（{elapsed}秒）")
 
-                    # 要約チェック
+                    # 要約チェック（複数のセレクターを試す）
                     if not summary_ready:
                         try:
+                            # まず通常のIDで試す
                             summary_element = self.driver.find_element(
                                 By.ID, "summary-result-section-text"
                             )
+                            summary_text = summary_element.text if summary_element else ""
+                            
+                            # テキストが存在し、空でなく、処理中メッセージでない場合
                             if (
-                                summary_element
-                                and summary_element.text
-                                and summary_element.text.strip()
+                                summary_text
+                                and summary_text.strip()
+                                and "処理中" not in summary_text
+                                and "Processing" not in summary_text
+                                and "待機中" not in summary_text
+                                and "Waiting" not in summary_text
+                                and len(summary_text.strip()) > 10  # 最低10文字以上
                             ):
                                 summary_ready = True
                                 print(f"   ✅ 要約完了（{elapsed}秒）")
                         except:
-                            pass
+                            # IDで見つからない場合、代替セレクターを試す
+                            try:
+                                summary_element = self.driver.find_element(
+                                    By.CSS_SELECTOR, "[id*='summary'], [class*='summary']"
+                                )
+                                summary_text = summary_element.text if summary_element else ""
+                                if (
+                                    summary_text
+                                    and summary_text.strip()
+                                    and "処理中" not in summary_text
+                                    and len(summary_text.strip()) > 10
+                                ):
+                                    summary_ready = True
+                                    print(f"   ✅ 要約完了（{elapsed}秒、代替セレクター）")
+                            except:
+                                pass
 
                     # タイムスタンプチェック
                     if not timestamp_ready:
@@ -353,6 +376,13 @@ class SummaryFMProcessor:
                     # 全て完了したら終了
                     if text_ready and summary_ready and timestamp_ready:
                         print(f"✅ 全ての処理が完了しました！（合計{elapsed}秒）")
+                        result_found = True
+                        break
+                    
+                    # 文字起こしとタイムスタンプが完了し、要約が5分以上待っても完了しない場合は要約なしで続行
+                    if text_ready and timestamp_ready and elapsed > 300 and not summary_ready:
+                        print(f"⚠️ 要約が5分経過しても完了しませんでした。要約なしで続行します。")
+                        summary_ready = True  # 要約なしでも続行
                         result_found = True
                         break
 
@@ -387,14 +417,20 @@ class SummaryFMProcessor:
                 time.sleep(5)  # 5秒ごとにチェック
 
             if not result_found:
-                print(f"⚠️ {max_wait_time}秒待機しましたが、結果が表示されませんでした")
-                # タイムアウト時のスクリーンショット
-                timeout_screenshot = (
-                    Path("data/debug")
-                    / f"timeout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                )
-                self.driver.save_screenshot(str(timeout_screenshot))
-                print(f"📸 タイムアウト時のスクリーンショット: {timeout_screenshot}")
+                print(f"⚠️ {max_wait_time}秒待機しましたが、全ての結果が表示されませんでした")
+                # 完了している部分があれば取得を試みる
+                if text_ready or timestamp_ready:
+                    print("💡 完了している部分の結果を取得します...")
+                # タイムアウト時のスクリーンショット（セッションが有効な場合のみ）
+                try:
+                    timeout_screenshot = (
+                        Path("data/debug")
+                        / f"timeout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                    )
+                    self.driver.save_screenshot(str(timeout_screenshot))
+                    print(f"📸 タイムアウト時のスクリーンショット: {timeout_screenshot}")
+                except:
+                    print("⚠️ スクリーンショットの保存に失敗しました（ブラウザセッションが切れている可能性）")
 
             # 少し待機してから結果を取得
             time.sleep(5)

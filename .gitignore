@@ -4,3 +4,9 @@ __pycache__/
 config/*.yaml
 downloads/
 .env/
+ACCOUNTS.md
+.DS_Store
+.cache
+data/
+process_log.txt
+*.log
