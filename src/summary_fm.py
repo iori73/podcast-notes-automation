@@ -250,6 +250,9 @@ class SummaryFMProcessor:
             absolute_path = str(Path(mp3_path).resolve())
             file_input.send_keys(absolute_path)
             print(f"✅ ファイルアップロード完了: {absolute_path}")
+            
+            # ファイルアップロード後の処理待機
+            time.sleep(3)
 
             # 言語選択
             language_select = self.wait.until(
@@ -258,12 +261,44 @@ class SummaryFMProcessor:
             select = Select(language_select)
             select.select_by_value(language)
             print(f"✅ 言語設定完了: {language}")
+            
+            # 言語選択後の処理待機
+            time.sleep(2)
 
-            submit_button = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.inputs-submit"))
-            )
-            submit_button.click()
-            print("✅ 文字起こし処理開始")
+            # 送信ボタンがクリック可能になるまで待機（複数のセレクターを試す）
+            submit_button = None
+            selectors = [
+                (By.CSS_SELECTOR, "button.inputs-submit"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.XPATH, "//button[contains(@class, 'submit')]"),
+                (By.XPATH, "//button[contains(text(), '送信')]"),
+                (By.XPATH, "//button[contains(text(), 'Submit')]"),
+            ]
+            
+            for selector_type, selector_value in selectors:
+                try:
+                    submit_button = self.wait.until(
+                        EC.element_to_be_clickable((selector_type, selector_value))
+                    )
+                    print(f"✅ 送信ボタンが見つかりました: {selector_value}")
+                    break
+                except:
+                    continue
+            
+            if not submit_button:
+                # 最後の手段として、すべてのボタンを探す
+                buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                for button in buttons:
+                    if button.is_displayed() and button.is_enabled():
+                        submit_button = button
+                        print("✅ 代替方法で送信ボタンを見つけました")
+                        break
+            
+            if submit_button:
+                submit_button.click()
+                print("✅ 文字起こし処理開始")
+            else:
+                raise Exception("送信ボタンが見つかりませんでした")
 
             # スクリーンショットを保存（デバッグ用）
             screenshot_path = (
@@ -318,44 +353,21 @@ class SummaryFMProcessor:
                             text_ready = True
                             print(f"   ✅ 文字起こし完了（{elapsed}秒）")
 
-                    # 要約チェック（複数のセレクターを試す）
+                    # 要約チェック
                     if not summary_ready:
                         try:
-                            # まず通常のIDで試す
                             summary_element = self.driver.find_element(
                                 By.ID, "summary-result-section-text"
                             )
-                            summary_text = summary_element.text if summary_element else ""
-                            
-                            # テキストが存在し、空でなく、処理中メッセージでない場合
                             if (
-                                summary_text
-                                and summary_text.strip()
-                                and "処理中" not in summary_text
-                                and "Processing" not in summary_text
-                                and "待機中" not in summary_text
-                                and "Waiting" not in summary_text
-                                and len(summary_text.strip()) > 10  # 最低10文字以上
+                                summary_element
+                                and summary_element.text
+                                and summary_element.text.strip()
                             ):
                                 summary_ready = True
                                 print(f"   ✅ 要約完了（{elapsed}秒）")
                         except:
-                            # IDで見つからない場合、代替セレクターを試す
-                            try:
-                                summary_element = self.driver.find_element(
-                                    By.CSS_SELECTOR, "[id*='summary'], [class*='summary']"
-                                )
-                                summary_text = summary_element.text if summary_element else ""
-                                if (
-                                    summary_text
-                                    and summary_text.strip()
-                                    and "処理中" not in summary_text
-                                    and len(summary_text.strip()) > 10
-                                ):
-                                    summary_ready = True
-                                    print(f"   ✅ 要約完了（{elapsed}秒、代替セレクター）")
-                            except:
-                                pass
+                            pass
 
                     # タイムスタンプチェック
                     if not timestamp_ready:
@@ -376,13 +388,6 @@ class SummaryFMProcessor:
                     # 全て完了したら終了
                     if text_ready and summary_ready and timestamp_ready:
                         print(f"✅ 全ての処理が完了しました！（合計{elapsed}秒）")
-                        result_found = True
-                        break
-                    
-                    # 文字起こしとタイムスタンプが完了し、要約が5分以上待っても完了しない場合は要約なしで続行
-                    if text_ready and timestamp_ready and elapsed > 300 and not summary_ready:
-                        print(f"⚠️ 要約が5分経過しても完了しませんでした。要約なしで続行します。")
-                        summary_ready = True  # 要約なしでも続行
                         result_found = True
                         break
 
@@ -417,20 +422,14 @@ class SummaryFMProcessor:
                 time.sleep(5)  # 5秒ごとにチェック
 
             if not result_found:
-                print(f"⚠️ {max_wait_time}秒待機しましたが、全ての結果が表示されませんでした")
-                # 完了している部分があれば取得を試みる
-                if text_ready or timestamp_ready:
-                    print("💡 完了している部分の結果を取得します...")
-                # タイムアウト時のスクリーンショット（セッションが有効な場合のみ）
-                try:
-                    timeout_screenshot = (
-                        Path("data/debug")
-                        / f"timeout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                    )
-                    self.driver.save_screenshot(str(timeout_screenshot))
-                    print(f"📸 タイムアウト時のスクリーンショット: {timeout_screenshot}")
-                except:
-                    print("⚠️ スクリーンショットの保存に失敗しました（ブラウザセッションが切れている可能性）")
+                print(f"⚠️ {max_wait_time}秒待機しましたが、結果が表示されませんでした")
+                # タイムアウト時のスクリーンショット
+                timeout_screenshot = (
+                    Path("data/debug")
+                    / f"timeout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                )
+                self.driver.save_screenshot(str(timeout_screenshot))
+                print(f"📸 タイムアウト時のスクリーンショット: {timeout_screenshot}")
 
             # 少し待機してから結果を取得
             time.sleep(5)

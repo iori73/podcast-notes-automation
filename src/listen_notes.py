@@ -4,6 +4,7 @@ from pathlib import Path
 from utils import load_config
 import urllib.parse
 import os
+import re
 
 
 class ListenNotesClient:
@@ -17,39 +18,82 @@ class ListenNotesClient:
     
     def search_episode(self, title):
         """タイトルからエピソードを検索"""
-        search_params = {
-            'q': title,
-            'type': 'episode',
-            'language': self.language,
-            'safe_mode': 0,
-            'sort_by_date': 0,  # 関連度順にソート
-            'offset': 0,
-            'len_min': 0,
-            'len_max': 0
-        }
+        # まず完全なタイトルで検索
+        search_queries = [title]
         
-        try:
-            response = requests.get(
-                f"{self.base_url}/search",
-                headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']},
-                params=search_params
-            )
+        # タイトルを分割して主要な部分を抽出
+        # 「：」や「-」で分割された場合、最初の部分と主要なキーワードを使用
+        parts = []
+        if '：' in title:
+            parts = title.split('：')
+        elif '-' in title:
+            parts = title.split('-')
+        elif ' ' in title:
+            parts = title.split(' ')
+        
+        if len(parts) > 1:
+            search_queries.append(parts[0].strip())  # 最初の部分
+            search_queries.append(parts[-1].strip())  # 最後の部分
+            # 最初の2つの部分を組み合わせ
+            if len(parts) >= 2:
+                search_queries.append(f"{parts[0].strip()} {parts[1].strip()}")
+        
+        # 主要なキーワードを抽出（日本語文字のみ）
+        keywords = re.findall(r'[\u4e00-\u9fff]+', title)
+        if keywords:
+            # 長いキーワードを優先（3文字以上）
+            keywords = [kw for kw in keywords if len(kw) >= 3]
+            keywords = sorted(keywords, key=len, reverse=True)
+            if len(keywords) > 0:
+                search_queries.append(keywords[0])  # 最長のキーワード
+            if len(keywords) > 1:
+                search_queries.append(' '.join(keywords[:2]))  # 上位2つのキーワード
+            if len(keywords) > 2:
+                search_queries.append(' '.join(keywords[:3]))  # 上位3つのキーワード
+        
+        for query in search_queries:
+            search_params = {
+                'q': query,
+                'type': 'episode',
+                'language': self.language,
+                'safe_mode': 0,
+                'sort_by_date': 0,  # 関連度順にソート
+                'offset': 0,
+                'len_min': 0,
+                'len_max': 0
+            }
             
-            if response.status_code == 200:
-                data = response.json()
-                if not data.get('results'):
-                    return None
-                    
-                # タイトルの完全一致を優先
-                for episode in data['results']:
-                    if episode['title_original'].strip() == title.strip():
-                        return episode
-                        
-                # 完全一致がない場合は最も関連度の高い結果を返す
-                return data['results'][0]
+            try:
+                response = requests.get(
+                    f"{self.base_url}/search",
+                    headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']},
+                    params=search_params
+                )
                 
-        except Exception as e:
-            print(f"検索エラー: {str(e)}")
+                if response.status_code == 200:
+                    data = response.json()
+                    if not data.get('results'):
+                        continue
+                        
+                    # タイトルの完全一致を優先
+                    for episode in data['results']:
+                        if episode['title_original'].strip() == title.strip():
+                            return episode
+                    
+                    # 部分一致をチェック（タイトルの主要部分が含まれているか）
+                    for episode in data['results']:
+                        episode_title = episode['title_original'].strip()
+                        # タイトルの主要キーワードが含まれているか確認
+                        if any(keyword in episode_title for keyword in title.split('：')[:2] if keyword):
+                            return episode
+                            
+                    # 完全一致がない場合は最も関連度の高い結果を返す
+                    return data['results'][0]
+                    
+            except Exception as e:
+                print(f"検索エラー (クエリ: {query}): {str(e)}")
+                continue
+        
         return None
 
 

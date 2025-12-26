@@ -4,6 +4,7 @@
 """
 
 import sys
+import re
 from pathlib import Path
 
 # srcディレクトリをパスに追加
@@ -41,7 +42,26 @@ def process_episode(spotify_url: str):
         ln_client.set_language(ln_language)
 
         # **Listen Notes でエピソード URL を取得**
+        # まず完全なタイトルで検索
         ln_url = ln_client.get_episode_url(title)
+        
+        # 見つからない場合、番組名とタイトルの組み合わせで検索
+        if not ln_url and episode_info.get('show_name'):
+            show_name = episode_info.get('show_name')
+            combined_query = f"{show_name} {title}"
+            print(f"   番組名とタイトルで再検索: {combined_query}")
+            episode = ln_client.search_episode(combined_query)
+            if episode:
+                ln_url = episode.get('listennotes_url')
+        
+        # まだ見つからない場合、タイトルの主要部分で検索
+        if not ln_url and '：' in title:
+            title_part = title.split('：')[0]
+            print(f"   タイトルの主要部分で再検索: {title_part}")
+            episode = ln_client.search_episode(title_part)
+            if episode:
+                ln_url = episode.get('listennotes_url')
+        
         if ln_url:
             print(f"✅ Listen Notes URL: {ln_url}")
         else:
@@ -59,22 +79,69 @@ def process_episode(spotify_url: str):
             except Exception as e:
                 print(f"❌ Listen Notes ダウンロードエラー: {str(e)}")
 
-        # **Listen Notesで見つからなかった場合は Spotify からダウンロード**
+        # **Listen Notesで見つからなかった場合は ローカルファイルを検索**
         if not downloaded_file:
             print("\n⚠️ Listen Notesでエピソードが見つかりませんでした。")
-            print("📥 代わりにSpotifyから直接ダウンロードを試みます...")
-            try:
-                # Spotifyからの直接ダウンロード機能があるか確認
-                if hasattr(spotify_client, 'download_episode'):
-                    downloaded_file = spotify_client.download_episode(spotify_url)
-                    print(f"✅ Spotifyからダウンロード成功: {downloaded_file}")
+            print("📁 ローカルのダウンロードディレクトリを検索中...")
+            
+            # ローカルのダウンロードディレクトリを検索
+            downloads_dir = Path("data/downloads")
+            if downloads_dir.exists():
+                # タイトルからキーワードを抽出（より正確なマッチングのため）
+                # まず、タイトルの主要部分を抽出（「：」で分割）
+                title_parts = []
+                if '：' in title:
+                    title_parts = [part.strip() for part in title.split('：')]
                 else:
-                    print("❌ Spotifyからの直接ダウンロード機能が実装されていません")
-                    print("💡 ローカルにMP3ファイルがある場合は、そのパスを指定してください")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"❌ Spotify ダウンロードエラー: {str(e)}")
-                sys.exit(1)  # Spotifyでも取得できない場合は終了
+                    title_parts = [title]
+                
+                # タイトルから主要なキーワードを抽出（日本語文字のみ）
+                keywords = re.findall(r'[\u4e00-\u9fff]+', title)
+                # 長いキーワードを優先（3文字以上）
+                keywords = [kw for kw in keywords if len(kw) >= 3]
+                # 長さでソート（長い順）
+                keywords = sorted(keywords, key=len, reverse=True)
+                
+                # タイトルの主要部分を優先的に追加
+                search_terms = title_parts + keywords[:3]  # タイトル部分 + 上位3つのキーワード
+                
+                print(f"   検索キーワード: {search_terms[:5]}")  # 上位5つを表示
+                
+                best_match = None
+                best_score = 0
+                
+                for mp3_file in downloads_dir.glob("*.mp3"):
+                    file_name = mp3_file.name
+                    score = 0
+                    
+                    # タイトルの主要部分が含まれているか確認（高スコア）
+                    for part in title_parts:
+                        if part in file_name:
+                            score += len(part) * 2  # 長い部分ほど高スコア
+                    
+                    # キーワードが含まれているか確認
+                    for keyword in keywords[:3]:
+                        if keyword in file_name:
+                            score += len(keyword)
+                    
+                    # より正確なマッチングを優先
+                    if score > best_score:
+                        best_score = score
+                        best_match = mp3_file
+                
+                # スコアが一定以上の場合のみ使用
+                if best_match and best_score >= 5:  # 最小スコア閾値
+                    downloaded_file = best_match
+                    print(f"✅ ローカルファイルが見つかりました: {downloaded_file} (マッチスコア: {best_score})")
+                else:
+                    print(f"⚠️ ローカルファイルが見つかりませんでした (最高スコア: {best_score if best_match else 0})")
+            
+            if not downloaded_file:
+                print("❌ ローカルにMP3ファイルが見つかりませんでした")
+                print("💡 以下のいずれかの方法で音声ファイルを取得してください:")
+                print("   1. data/downloads/ ディレクトリにMP3ファイルを配置")
+                print(f"   2. ファイル名にタイトルの主要部分を含める: {title_parts[0] if 'title_parts' in locals() and title_parts else 'タイトルの一部'}")
+                sys.exit(1)
 
         # **MP3 ファイルのメタデータを取得**
         duration = f"{episode_info['duration_ms'] // (1000 * 60)}:{(episode_info['duration_ms'] // 1000) % 60:02d}"
