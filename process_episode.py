@@ -40,25 +40,21 @@ def process_episode(spotify_url: str):
         print("🔍 Listen Notesでエピソードを検索中...")
         ln_client = ListenNotesClient()
         ln_client.set_language(ln_language)
+        
+        # 番組名を取得
+        show_name = episode_info.get('show_name', '')
 
         # **Listen Notes でエピソード URL を取得**
-        # まず完全なタイトルで検索
-        ln_url = ln_client.get_episode_url(title)
+        # 番組名を含めて検索（より正確なマッチング）
+        print(f"   番組名: {show_name}, タイトル: {title}")
+        episode = ln_client.search_episode(title, show_name=show_name)
+        ln_url = episode.get('listennotes_url') if episode else None
         
-        # 見つからない場合、番組名とタイトルの組み合わせで検索
-        if not ln_url and episode_info.get('show_name'):
-            show_name = episode_info.get('show_name')
-            combined_query = f"{show_name} {title}"
-            print(f"   番組名とタイトルで再検索: {combined_query}")
-            episode = ln_client.search_episode(combined_query)
-            if episode:
-                ln_url = episode.get('listennotes_url')
-        
-        # まだ見つからない場合、タイトルの主要部分で検索
+        # 見つからない場合、タイトルの主要部分で再検索
         if not ln_url and '：' in title:
             title_part = title.split('：')[0]
             print(f"   タイトルの主要部分で再検索: {title_part}")
-            episode = ln_client.search_episode(title_part)
+            episode = ln_client.search_episode(title_part, show_name=show_name)
             if episode:
                 ln_url = episode.get('listennotes_url')
         
@@ -76,6 +72,26 @@ def process_episode(spotify_url: str):
                     episode_url=ln_url, episode_title=title
                 )
                 print(f"✅ Listen Notesからダウンロード成功: {downloaded_file}")
+                
+                # **Download Verification**
+                print("🔍 ダウンロードファイルを検証中...")
+                verification = ln_client.verify_download(
+                    downloaded_file, 
+                    expected_duration_ms=episode_info.get('duration_ms')
+                )
+                
+                if not verification['valid']:
+                    print(f"❌ ファイル検証失敗: {verification['error']}")
+                    print("   ダウンロードしたファイルは無効です。ローカルファイルを検索します。")
+                    # Delete invalid file
+                    Path(downloaded_file).unlink(missing_ok=True)
+                    downloaded_file = None
+                else:
+                    file_size_mb = verification['file_size'] / 1024 / 1024
+                    print(f"✅ ファイル検証成功: {file_size_mb:.1f}MB, MP3形式: {verification['is_mp3']}")
+                    if verification['duration_match'] == False:
+                        print("   ⚠️ ファイルの長さが予想と異なります（内容を確認してください）")
+                        
             except Exception as e:
                 print(f"❌ Listen Notes ダウンロードエラー: {str(e)}")
 
@@ -107,34 +123,86 @@ def process_episode(spotify_url: str):
                 
                 print(f"   検索キーワード: {search_terms[:5]}")  # 上位5つを表示
                 
+                # Normalize show_name for comparison
+                def normalize_name(name):
+                    """Normalize name for comparison (lowercase, remove spaces/punctuation)"""
+                    if not name:
+                        return ""
+                    return re.sub(r'[^\w\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]', '', name.lower())
+                
+                normalized_show_name = normalize_name(show_name)
+                
                 best_match = None
                 best_score = 0
+                MIN_SCORE_THRESHOLD = 15  # Increased threshold for safety
                 
                 for mp3_file in downloads_dir.glob("*.mp3"):
                     file_name = mp3_file.name
+                    file_stem = mp3_file.stem  # Filename without extension
+                    normalized_file_name = normalize_name(file_stem)
                     score = 0
+                    match_reasons = []
                     
-                    # タイトルの主要部分が含まれているか確認（高スコア）
+                    # Priority 1: Exact title match (highest priority)
+                    if title.strip() == file_stem or title.strip() in file_stem:
+                        score += 100
+                        match_reasons.append("完全タイトル一致")
+                    
+                    # Priority 2: Show name in filename (REQUIRED if show_name is provided)
+                    show_name_in_file = False
+                    if normalized_show_name and normalized_show_name in normalized_file_name:
+                        score += 50
+                        show_name_in_file = True
+                        match_reasons.append("番組名含む")
+                    
+                    # Priority 3: Title parts match
+                    parts_matched = 0
                     for part in title_parts:
-                        if part in file_name:
-                            score += len(part) * 2  # 長い部分ほど高スコア
+                        if part and len(part) >= 3 and part in file_name:
+                            score += len(part) * 2
+                            parts_matched += 1
+                    if parts_matched > 0:
+                        match_reasons.append(f"タイトル部分{parts_matched}個一致")
                     
-                    # キーワードが含まれているか確認
-                    for keyword in keywords[:3]:
+                    # Priority 4: Keywords match (require multiple keywords)
+                    keywords_matched = 0
+                    for keyword in keywords[:5]:
                         if keyword in file_name:
                             score += len(keyword)
+                            keywords_matched += 1
+                    if keywords_matched > 0:
+                        match_reasons.append(f"キーワード{keywords_matched}個一致")
                     
-                    # より正確なマッチングを優先
+                    # STRICT: If show_name is provided, file MUST contain show_name OR exact title
+                    if normalized_show_name and not show_name_in_file:
+                        if score < 100:  # Not an exact title match
+                            # Skip files that don't have show name (likely wrong podcast)
+                            continue
+                    
+                    # Log candidates with non-zero scores
+                    if score > 0:
+                        print(f"   候補: {file_name} (スコア: {score}, 理由: {', '.join(match_reasons)})")
+                    
                     if score > best_score:
                         best_score = score
                         best_match = mp3_file
                 
-                # スコアが一定以上の場合のみ使用
-                if best_match and best_score >= 5:  # 最小スコア閾値
+                # スコアが一定以上の場合のみ使用（閾値を引き上げ）
+                if best_match and best_score >= MIN_SCORE_THRESHOLD:
                     downloaded_file = best_match
                     print(f"✅ ローカルファイルが見つかりました: {downloaded_file} (マッチスコア: {best_score})")
+                    
+                    # Verify local file too
+                    verification = ln_client.verify_download(
+                        downloaded_file, 
+                        expected_duration_ms=episode_info.get('duration_ms')
+                    )
+                    if not verification['valid']:
+                        print(f"⚠️ ローカルファイル検証警告: {verification['error']}")
+                    elif verification['duration_match'] == False:
+                        print("   ⚠️ ファイルの長さが予想と異なります（内容を確認してください）")
                 else:
-                    print(f"⚠️ ローカルファイルが見つかりませんでした (最高スコア: {best_score if best_match else 0})")
+                    print(f"⚠️ ローカルファイルが見つかりませんでした (最高スコア: {best_score}, 必要スコア: {MIN_SCORE_THRESHOLD})")
             
             if not downloaded_file:
                 print("❌ ローカルにMP3ファイルが見つかりませんでした")

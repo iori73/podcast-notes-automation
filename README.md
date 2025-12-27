@@ -103,6 +103,62 @@ python scripts/run_web_interface.py
 # → http://localhost:8501
 ```
 
+## 📝 エピソード処理の標準フロー
+
+新しいエピソードを処理してNotionに追加する場合、以下の指示文を使用してください：
+
+### AIアシスタントへの指示文（推奨）
+
+```
+以下のSpotifyエピソードをprocess_episode.pyを使って処理し、Notionに追加してください：
+
+Spotify URL: [Spotify URL]
+
+処理内容：
+- process_episode.pyスクリプトを使用
+- Spotifyからメタデータ取得
+- Listen Notesで音声ファイル検索・ダウンロード（見つからない場合はローカルファイルを検索）
+- Summary.fmで文字起こし・要約・タイムスタンプ生成（アカウント自動切り替え対応）
+- data/outputs/にMarkdownファイル保存
+- Notionに自動アップロード
+
+既存の処理フローに従って実行してください。
+```
+
+### 手動実行方法
+
+```bash
+# 仮想環境をアクティベート
+source venv/bin/activate
+
+# エピソードを処理
+python process_episode.py "https://open.spotify.com/episode/EPISODE_ID"
+```
+
+### 処理フローの詳細
+
+1. **Spotifyからメタデータ取得**: エピソードタイトル、番組名、公開日、言語などを取得
+2. **音声ファイル取得**:
+   - Listen Notes APIでエピソードを検索
+   - 見つかった場合は音声ファイルをダウンロード
+   - 見つからない場合はローカルファイル（`data/downloads/`）を検索
+3. **文字起こし・要約処理**:
+   - Summary.fmにログイン（アカウント自動切り替え）
+   - 音声ファイルをアップロード
+   - 文字起こし・要約・タイムスタンプを生成（最大20分）
+4. **結果保存**:
+   - `data/outputs/[エピソードタイトル]/episode_summary.md`に保存
+   - 日本語エピソードの場合は英語翻訳も追加
+5. **Notionアップロード**:
+   - 生成されたMarkdownファイルをNotionデータベースに追加
+   - カバー画像、Spotify URL、番組名などのメタデータも設定
+
+### 注意事項
+
+- 処理には最大20分かかる場合があります
+- Summary.fmの月5回制限があるため、複数アカウントを自動切り替えします
+- Listen Notesで見つからない場合は、手動で`data/downloads/`にMP3ファイルを配置してください
+
 ## 🔧 開発・カスタマイズ
 
 ### テスト実行
