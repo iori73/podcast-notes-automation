@@ -76,7 +76,30 @@ podcast_notes_automation/
 
 ## 🚀 使用方法
 
-### Spotify URL 処理
+### 📱 推奨: Spotify「聴きながら読む」+ Claude（最も確実）
+
+1. **Spotifyアプリ**で対象エピソードを開く
+2. **「聴きながら読む（ベータ版）」**をタップ
+3. ブラウザの開発者ツールまたはHTMLをコピー
+4. **Claudeに以下のように依頼**：
+
+```
+以下のSpotifyエピソードを処理してNotionに追加してください：
+
+Spotify URL: [URL]
+
+HTMLファイル: [添付]
+
+※チャプター目次・要約・Notion登録まで一括でお願いします
+```
+
+**メリット**:
+- ✅ Listen Notesで見つからなくても処理可能
+- ✅ Summary.fmの制限なし
+- ✅ 高品質なチャプター目次（Claude生成）
+- ✅ 確実にNotion登録される
+
+### 🎵 従来: Spotify URL 処理（Listen Notes経由）
 
 ```python
 # core/processors/spotify_processor.py で URL を編集
@@ -85,6 +108,8 @@ spotify_url = "https://open.spotify.com/episode/YOUR_EPISODE_ID"
 # 実行
 python scripts/run_spotify_processing.py
 ```
+
+**注意**: Listen Notesでエピソードが見つからない場合は失敗します
 
 ### ローカル MP3 処理
 

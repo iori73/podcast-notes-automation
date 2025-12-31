@@ -98,82 +98,24 @@ def generate_summary(transcript: str, max_length: int = 400) -> str:
     return summary
 
 
-def generate_chapters_with_ollama(timestamps_raw: list) -> str:
-    """Ollamaを使ってタイムスタンプからチャプタータイトルを生成"""
-    try:
-        import ollama
-        
-        # 主要なタイムスタンプを選択（約3分ごと）
-        key_timestamps = []
-        last_minute = -3
-        for ts, text in timestamps_raw:
-            parts = ts.split(':')
-            minutes = int(parts[0])
-            if minutes >= last_minute + 3:
-                preview = text[:300] if len(text) > 300 else text
-                key_timestamps.append((ts, preview))
-                last_minute = minutes
-        
-        # 各タイムスタンプに対してタイトルを生成
-        transcript_segments = "\n".join([f"[{ts}] {text}" for ts, text in key_timestamps])
-        
-        prompt = f"""あなたはポッドキャストの目次を作成するアシスタントです。
-
-以下の文字起こしセグメントを読んで、各タイムスタンプに対して簡潔な日本語のチャプタータイトルを作成してください。
-
-出力形式（厳守）:
-0:00 タイトル
-3:00 タイトル
-...
-
-ルール:
-- 各タイトルは15文字以内
-- 話している内容を端的に表す
-- 説明文は不要、タイトルのみ出力
-- 「について」「に関して」は使わない
-
-セグメント:
-{transcript_segments}
-
-チャプター目次:"""
-
-        print("🤖 Ollamaでチャプタータイトルを生成中...")
-        response = ollama.chat(model='llama3.2', messages=[
-            {'role': 'user', 'content': prompt},
-        ])
-        
-        raw_output = response['message']['content'].strip()
-        
-        # タイムスタンプ形式の行のみ抽出
-        chapters = []
-        for line in raw_output.split('\n'):
-            line = line.strip()
-            # MM:SS または M:SS で始まる行のみ
-            if re.match(r'^\d{1,2}:\d{2}\s+.+', line):
-                chapters.append(line)
-        
-        if chapters:
-            print(f"   ✅ チャプター生成完了（{len(chapters)}個）")
-            return '\n'.join(chapters)
-        else:
-            raise ValueError("有効なチャプターが生成されませんでした")
-        
-    except Exception as e:
-        print(f"   ⚠️ Ollama生成エラー: {e}")
-        print("   📝 フォールバック: 手動でタイトル抽出...")
-        # フォールバック: 3分ごとに区切って最初の単語をタイトルに
-        fallback = []
-        last_minute = -3
-        for ts, text in timestamps_raw:
-            parts = ts.split(':')
-            minutes = int(parts[0])
-            if minutes >= last_minute + 3:
-                # 最初の句点までを取得
-                first_sentence = text.split('。')[0]
-                title = first_sentence[:20] + "..." if len(first_sentence) > 20 else first_sentence
-                fallback.append(f"{ts} {title}")
-                last_minute = minutes
-        return '\n'.join(fallback)
+def generate_chapters_placeholder(timestamps_raw: list) -> str:
+    """チャプター目次のプレースホルダーを生成（Claudeが後で編集）"""
+    # 主要なタイムスタンプを選択（約3分ごと）
+    key_timestamps = []
+    last_minute = -3
+    for ts, text in timestamps_raw:
+        parts = ts.split(':')
+        minutes = int(parts[0])
+        if minutes >= last_minute + 3:
+            key_timestamps.append(ts)
+            last_minute = minutes
+    
+    # プレースホルダー形式で出力
+    placeholder = []
+    for ts in key_timestamps:
+        placeholder.append(f"{ts} [チャプタータイトル]")
+    
+    return '\n'.join(placeholder)
 
 
 def main():
@@ -222,9 +164,10 @@ def main():
     print(f"   ✅ 文字数: {len(extracted['transcript'])} 文字")
     print(f"   ✅ タイムスタンプ: {extracted['timestamp_count']} セクション")
     
-    # Step 3: チャプタータイトル生成
-    print("\n📑 Step 3: チャプタータイトル（目次）を生成...")
-    chapters = generate_chapters_with_ollama(extracted['timestamps_raw'])
+    # Step 3: チャプタータイトル（プレースホルダー）
+    print("\n📑 Step 3: チャプタータイトル（目次）のプレースホルダーを生成...")
+    chapters = generate_chapters_placeholder(extracted['timestamps_raw'])
+    print(f"   ✅ {len(chapters.splitlines())}個のタイムスタンプ（Claudeが後で編集）")
     
     # Step 4: 要約生成
     print("\n📋 Step 4: 要約を準備...")
