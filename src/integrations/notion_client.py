@@ -400,6 +400,28 @@ class NotionClient:
         
         return blocks
     
+    def _append_blocks_to_page(self, page_id: str, blocks: list) -> bool:
+        """ページにブロックを追加（100ブロックずつ分割）"""
+        BATCH_SIZE = 100
+        blocks_url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        
+        for i in range(0, len(blocks), BATCH_SIZE):
+            batch = blocks[i:i + BATCH_SIZE]
+            response = requests.patch(
+                blocks_url,
+                headers=self.headers,
+                json={"children": batch}
+            )
+            
+            if response.status_code != 200:
+                print(f"⚠️ ブロック追加エラー (batch {i//BATCH_SIZE + 1}): {response.status_code}")
+                print(f"   レスポンス: {response.text[:500]}")
+                return False
+            
+            print(f"   ✅ ブロック追加完了: {i + 1}〜{min(i + BATCH_SIZE, len(blocks))} / {len(blocks)}")
+        
+        return True
+    
     def create_page(
         self,
         title: str,
@@ -410,7 +432,7 @@ class NotionClient:
         release_date: Optional[str] = None,
         duration_minutes: Optional[float] = None,
     ) -> Optional[str]:
-        """Notionデータベースに新しいページを作成"""
+        """Notionデータベースに新しいページを作成（100ブロック以上も対応）"""
         try:
             # プロパティを構築
             properties = {
@@ -464,6 +486,15 @@ class NotionClient:
                     }
                 }
             
+            # 全ブロックを生成
+            all_blocks = self._markdown_to_notion_blocks(markdown_content)
+            print(f"📝 生成されたブロック数: {len(all_blocks)}")
+            
+            # 最初の100ブロックでページを作成
+            BATCH_SIZE = 100
+            initial_blocks = all_blocks[:BATCH_SIZE]
+            remaining_blocks = all_blocks[BATCH_SIZE:]
+            
             # ページ作成リクエスト
             create_url = "https://api.notion.com/v1/pages"
             payload = {
@@ -471,7 +502,7 @@ class NotionClient:
                     "database_id": self.database_id
                 },
                 "properties": properties,
-                "children": self._markdown_to_notion_blocks(markdown_content)
+                "children": initial_blocks
             }
             
             if cover:
@@ -484,6 +515,13 @@ class NotionClient:
                 page_id = page_data.get("id", "")
                 page_url = page_data.get("url", "")
                 print(f"✅ Notionページを作成しました: {page_url}")
+                
+                # 残りのブロックを追加
+                if remaining_blocks:
+                    print(f"📤 残り {len(remaining_blocks)} ブロックを追加中...")
+                    if not self._append_blocks_to_page(page_id, remaining_blocks):
+                        print("⚠️ 一部のブロック追加に失敗しましたが、ページは作成されています")
+                
                 return page_id
             else:
                 print(f"❌ Notionページ作成エラー: {response.status_code}")

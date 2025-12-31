@@ -1,0 +1,14 @@
+# Local Transcriber Dependencies
+# Install with: pip install -r requirements.txt
+
+# OpenAI Whisper for speech-to-text
+openai-whisper>=20231117
+
+# FFmpeg is also required (install via brew or apt):
+# macOS: brew install ffmpeg
+# Ubuntu: sudo apt install ffmpeg
+
+# Note: The following are already installed in the main project's venv:
+# - google-generativeai (for Gemini API)
+# - pyyaml (for config loading)
+
