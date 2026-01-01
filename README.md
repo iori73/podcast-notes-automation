@@ -8,42 +8,30 @@
 
 ## 🌟 主な機能
 
-- **🎵 Spotify 統合**: Spotify URL から音声ダウンロード・処理
-- **🎵 ローカル処理**: MP3 ファイル直接処理
-- **🤖 AI 分析**: Gemini AI による要約・構造化
-- **💾 データベース**: 124 エピソード管理済み
-- **🌐 Web ダッシュボード**: Streamlit 製管理画面
-- **🔄 アカウント自動切り替え**: Summary.fm の月 5 回制限を自動回避（4 アカウント管理）
+- **🎵 Spotify 統合**: Spotify URL からメタデータ・カバー画像取得
+- **🔍 Listen Notes 検索**: 音声ファイル自動検索・ダウンロード
+- **🎙️ Whisper 文字起こし**: ローカルで高精度な音声認識（日本語・英語対応）
+- **📄 Spotify HTML 抽出**: 「聴きながら読む」からの文字起こし取得（フォールバック）
+- **📝 Claude チャプター生成**: AIによる高品質なチャプター目次・要約
+- **☁️ Notion 連携**: 自動でデータベースに登録（カバー画像含む）
 
 ## ⚡ クイックスタート
 
-### 1. 簡単実行（推奨）
-
-```bash
-# Spotify URL 処理
-python scripts/run_spotify_processing.py
-
-# ローカル MP3 処理
-python scripts/run_local_processing.py
-
-# Web インターフェース
-python scripts/run_web_interface.py
-```
-
-### 2. 依存関係インストール
+### 1. 依存関係インストール
 
 ```bash
 # 基本依存関係
-pip install -r config/requirements/base.txt
+pip install -r requirements.txt
 
-# Web インターフェース用
-pip install -r config/requirements/web.txt
+# Whisper（ローカル文字起こし用）
+pip install openai-whisper
 
-# 開発用
-pip install -r config/requirements/dev.txt
+# Ollama（ローカル要約用 - オプション）
+brew install ollama
+ollama pull llama3.2
 ```
 
-### 3. 設定ファイル
+### 2. 設定ファイル
 
 `config/config.yaml` を作成：
 
@@ -53,8 +41,22 @@ spotify:
   client_secret: 'your_spotify_client_secret'
 listen_notes:
   api_key: 'your_listen_notes_api_key'
-gemini:
-  api_key: 'your_gemini_api_key'
+notion:
+  api_key: 'your_notion_api_key'
+  database_id: 'your_notion_database_id'
+```
+
+### 3. 処理実行
+
+```bash
+# 統合スクリプト（推奨）
+python process_unified.py "https://open.spotify.com/episode/xxx"
+
+# Spotify HTMLから処理
+python process_spotify_transcript.py transcript.html "https://open.spotify.com/episode/xxx"
+
+# ローカル音声ファイルから処理
+python local_transcriber/process.py audio.mp3 --spotify-url "https://..."
 ```
 
 ## 📁 プロジェクト構造
@@ -76,113 +78,143 @@ podcast_notes_automation/
 
 ## 🚀 使用方法
 
-### 📱 推奨: Spotify「聴きながら読む」+ Claude（最も確実）
+### 処理フロー概要
 
-1. **Spotifyアプリ**で対象エピソードを開く
-2. **「聴きながら読む（ベータ版）」**をタップ
-3. ブラウザの開発者ツールまたはHTMLをコピー
-4. **Claudeに以下のように依頼**：
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Spotify URL                              │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Listen Notes 音声検索                          │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+         ┌─────────────┴─────────────┐
+         │ 見つかった                 │ 見つからない
+         ▼                           ▼
+┌─────────────────┐     ┌─────────────────────────────────────┐
+│ 音声ダウンロード │     │ Browser MCP: Spotify HTML取得       │
+└────────┬────────┘     └──────────────────┬──────────────────┘
+         │                                 │
+         ▼                                 ▼
+┌─────────────────┐     ┌─────────────────────────────────────┐
+│ Whisper文字起こし│     │ HTMLから文字起こし抽出              │
+└────────┬────────┘     └──────────────────┬──────────────────┘
+         │                                 │
+         └─────────────┬───────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Claude: チャプター・要約生成                   │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Notion登録（カバー画像含む）                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 🎯 AIアシスタントへの推奨プロンプト
+
+新しいチャットでエピソード処理を依頼する際は、以下の指示文を使用してください：
 
 ```
 以下のSpotifyエピソードを処理してNotionに追加してください：
 
 Spotify URL: [URL]
 
-HTMLファイル: [添付]
+処理フロー：
+1. Listen Notesで音声検索 → Whisper文字起こし
+2. 見つからない場合: Browser MCPでSpotify HTMLを取得
+3. それも失敗した場合: 諦めて報告
 
 ※チャプター目次・要約・Notion登録まで一括でお願いします
 ```
 
-**メリット**:
+### 🔍 ワークフローA: Listen Notes経由（音声精度が高い）
+
+```bash
+python process_unified.py "https://open.spotify.com/episode/xxx"
+```
+
+**特徴**:
+- ✅ 音声から直接文字起こしするため精度が高い
+- ✅ 完全自動化（Listen Notesで見つかる場合）
+- ⚠️ Listen Notesで見つからない場合はフォールバック必要
+
+### 📄 ワークフローB: Spotify HTML（フォールバック）
+
+Listen Notesで見つからない場合、Spotifyの「聴きながら読む」機能を使用：
+
+1. **Browser MCPでSpotify URLを開く**
+2. **「聴きながら読む」からHTMLを取得**
+3. **以下のコマンドで処理**：
+
+```bash
+python process_spotify_transcript.py transcript.html "https://open.spotify.com/episode/xxx"
+```
+
+**特徴**:
 - ✅ Listen Notesで見つからなくても処理可能
-- ✅ Summary.fmの制限なし
-- ✅ 高品質なチャプター目次（Claude生成）
-- ✅ 確実にNotion登録される
+- ✅ ほぼすべてのSpotifyエピソードに対応
+- ⚠️ Spotify側の文字起こし品質に依存
 
-### 🎵 従来: Spotify URL 処理（Listen Notes経由）
+## 📝 スクリプト詳細
 
-```python
-# core/processors/spotify_processor.py で URL を編集
-spotify_url = "https://open.spotify.com/episode/YOUR_EPISODE_ID"
-
-# 実行
-python scripts/run_spotify_processing.py
-```
-
-**注意**: Listen Notesでエピソードが見つからない場合は失敗します
-
-### ローカル MP3 処理
-
-```python
-# core/processors/local_processor.py でパスを編集
-mp3_path = Path("data/downloads/your_audio.mp3")
-
-# 実行
-python scripts/run_local_processing.py
-```
-
-### Web ダッシュボード
+### `process_unified.py` - 統合処理スクリプト（推奨）
 
 ```bash
-python scripts/run_web_interface.py
-# → http://localhost:8501
+# 基本使用
+python process_unified.py "https://open.spotify.com/episode/xxx"
+
+# 言語指定
+python process_unified.py "https://open.spotify.com/episode/xxx" --language ja
+
+# Spotify HTMLから処理（フォールバック）
+python process_unified.py "https://open.spotify.com/episode/xxx" --html-file transcript.html
+
+# ローカル音声ファイルから処理
+python process_unified.py "https://open.spotify.com/episode/xxx" --audio-file episode.mp3
+
+# Notion登録をスキップ
+python process_unified.py "https://open.spotify.com/episode/xxx" --no-notion
 ```
 
-## 📝 エピソード処理の標準フロー
-
-新しいエピソードを処理してNotionに追加する場合、以下の指示文を使用してください：
-
-### AIアシスタントへの指示文（推奨）
-
-```
-以下のSpotifyエピソードをprocess_episode.pyを使って処理し、Notionに追加してください：
-
-Spotify URL: [Spotify URL]
-
-処理内容：
-- process_episode.pyスクリプトを使用
-- Spotifyからメタデータ取得
-- Listen Notesで音声ファイル検索・ダウンロード（見つからない場合はローカルファイルを検索）
-- Summary.fmで文字起こし・要約・タイムスタンプ生成（アカウント自動切り替え対応）
-- data/outputs/にMarkdownファイル保存
-- Notionに自動アップロード
-
-既存の処理フローに従って実行してください。
-```
-
-### 手動実行方法
+### `process_spotify_transcript.py` - Spotify HTML処理
 
 ```bash
-# 仮想環境をアクティベート
-source venv/bin/activate
+python process_spotify_transcript.py <HTMLファイル> "<Spotify URL>"
+```
 
-# エピソードを処理
-python process_episode.py "https://open.spotify.com/episode/EPISODE_ID"
+### `local_transcriber/process.py` - ローカル音声処理
+
+```bash
+python local_transcriber/process.py <音声ファイル> --language ja --spotify-url "<URL>"
 ```
 
 ### 処理フローの詳細
 
-1. **Spotifyからメタデータ取得**: エピソードタイトル、番組名、公開日、言語などを取得
+1. **Spotifyからメタデータ取得**: タイトル、番組名、公開日、カバー画像URL
 2. **音声ファイル取得**:
    - Listen Notes APIでエピソードを検索
-   - 見つかった場合は音声ファイルをダウンロード
-   - 見つからない場合はローカルファイル（`data/downloads/`）を検索
-3. **文字起こし・要約処理**:
-   - Summary.fmにログイン（アカウント自動切り替え）
-   - 音声ファイルをアップロード
-   - 文字起こし・要約・タイムスタンプを生成（最大20分）
-4. **結果保存**:
+   - 見つかった場合：音声ファイルをダウンロード・検証
+   - 見つからない場合：ローカル`data/downloads/`を検索、またはBrowser MCPでSpotify HTML取得
+3. **文字起こし処理**:
+   - 音声の場合：Whisper（ローカル）で高精度文字起こし
+   - HTMLの場合：BeautifulSoupで抽出・整形
+4. **チャプター・要約生成**:
+   - Claudeが対話的に最適なチャプター目次と要約を生成
+5. **結果保存**:
    - `data/outputs/[エピソードタイトル]/episode_summary.md`に保存
-   - 日本語エピソードの場合は英語翻訳も追加
-5. **Notionアップロード**:
-   - 生成されたMarkdownファイルをNotionデータベースに追加
+6. **Notionアップロード**:
+   - 全文をNotionデータベースに追加（100ブロック制限を自動回避）
    - カバー画像、Spotify URL、番組名などのメタデータも設定
 
 ### 注意事項
 
-- 処理には最大20分かかる場合があります
-- Summary.fmの月5回制限があるため、複数アカウントを自動切り替えします
-- Listen Notesで見つからない場合は、手動で`data/downloads/`にMP3ファイルを配置してください
+- Whisper処理は音声の長さに応じて数分〜数十分かかります
+- Listen Notesで見つからない場合は、Browser MCPまたは手動でHTMLを取得してください
+- 長い文字起こしも100ブロックずつ分割してNotionに全文アップロードされます
 
 ## 🔧 開発・カスタマイズ
 
@@ -210,34 +242,49 @@ flake8 .
 
 ### 処理フロー
 
-1. **入力**: Spotify URL または MP3 ファイル
-2. **ダウンロード**: Listen Notes API 経由で音声取得
-3. **文字起こし**: Summary.fm (Selenium) で文字起こし
-4. **AI 処理**: Gemini で要約・構造化
-5. **保存**: SQLite + Markdown ファイル出力
+1. **入力**: Spotify URL
+2. **メタデータ取得**: Spotify API でタイトル・カバー画像取得
+3. **音声取得**: Listen Notes API 経由（失敗時はSpotify HTML）
+4. **文字起こし**: Whisper（ローカル）で高精度変換
+5. **AI 処理**: Claude でチャプター・要約生成
+6. **保存**: Markdown ファイル + Notion データベース
 
 ### アーキテクチャ
 
-- **コア**: `core/processors/` - メイン処理ロジック
-- **統合**: `integrations/` - Spotify, Listen Notes, AI APIs
-- **データ**: `database/` - SQLite データベース管理
-- **UI**: `web/streamlit/` - Streamlit ダッシュボード
+```
+podcast-notes-automation/
+├── process_unified.py          # 統合処理スクリプト（推奨）
+├── process_spotify_transcript.py # Spotify HTML処理
+├── process_episode.py          # レガシー処理スクリプト
+├── src/
+│   ├── spotify.py              # Spotify API
+│   ├── listen_notes.py         # Listen Notes API
+│   ├── utils.py                # ユーティリティ
+│   └── integrations/
+│       └── notion_client.py    # Notion API
+├── local_transcriber/          # ローカル文字起こし
+│   ├── transcriber.py          # Whisper
+│   ├── summarizer.py           # Ollama (オプション)
+│   └── process.py              # 処理スクリプト
+├── config/
+│   └── config.yaml             # API設定
+└── data/
+    ├── downloads/              # ダウンロード音声
+    └── outputs/                # 処理結果
+```
 
 ## 📈 現在の状況
 
-✅ **124 エピソード**登録済み  
-✅ **520 セクション**解析済み  
-✅ **2020 年〜2025 年**の範囲  
-✅ **日英対応**完了
+✅ **Whisper対応**: ローカル文字起こし（日本語・英語）  
+✅ **Notion連携**: 全文アップロード（100ブロック制限回避）  
+✅ **フォールバック**: Listen Notes失敗時のSpotify HTML処理  
+✅ **日英対応**: 完了
 
 ## 📖 詳細ドキュメント
 
 - [📋 セットアップガイド](docs/setup/)
 - [🎯 使用方法ガイド](docs/guides/)
 - [⚙️ 開発者向け](docs/development/)
-- [🌐 Web インターフェース](docs/guides/README_WEB_INTERFACE.md)
-- [🔄 アカウント自動切り替え](docs/ACCOUNT_AUTO_SWITCH.md) - Summary.fm の月 5 回制限回避機能
-- [📊 アカウント管理](docs/ACCOUNT_MANAGEMENT.md) - アカウント管理システムの詳細
 
 ## 🤝 コントリビューション
 
@@ -260,4 +307,11 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 
 ---
 
-**作成**: 2024 年 12 月 | **更新**: 2024 年 12 月 | **バージョン**: 2.0.0
+**作成**: 2024 年 12 月 | **更新**: 2026 年 1 月 | **バージョン**: 3.0.0
+
+### v3.0.0 変更点
+- `process_unified.py`: 統合処理スクリプト追加
+- Whisperローカル文字起こし対応
+- Browser MCPフォールバック対応
+- Summary.fm依存を完全排除
+- Notion 100ブロック制限回避
