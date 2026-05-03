@@ -24,9 +24,15 @@
         - エーゼログループ公式に「ポータブル魚道」設置や神奈川工科大連携の言及なし
       - **仮説**: 「神奈川工科大」は **「高知大学」「高知工科大」** の聞き違い、ヒトは高橋勇夫氏で整合的。
       - 残作業: WebFetchが許可される環境で hito-ayu.net 業績目録PDF / J-STAGE / J-PlatPat を精査するか、本編音声を再聴取して正確な所属名を確認
-- [ ] [中] 大量の未コミット変更/未追跡スクリプトのコミット方針整理 (#repo-cleanup)
-      - 整理プランを 2026-05-03 にユーザーへ提示済み（次セッションでの承認待ち）
-      - 主要分類: Phase A コアv3.1.0変更コミット / Phase B .gitignore更新 / Phase C ユーティリティ判定 / Phase D 不要ファイル削除
+- [x] [中] 大量の未コミット変更/未追跡スクリプトのコミット方針整理 (#repo-cleanup)
+      - 2026-05-03 完了。ワーキングツリーはクリーン。6コミットに分割：
+        1. `f58d0b2` chore(gitignore): exclude personal/runtime/debug artifacts
+        2. `c77ae53` feat: v3.1.0 unified processor with iTunes/RSS fallback and Notion improvements
+        3. `a893d43` fix(whisper): suppress hallucination loops in transcription
+        4. `5bbfb77` chore(summary_fm): minor cleanup
+        5. `bf4de0a` feat(scripts): Notion utility scripts for index/update/batch/fix
+        6. `c8393c2` chore(project): add .aip session tracking and .cursorrules
+      - 物理削除は許可されなかったので PNG/snapshot は `.gitignore` で除外（ファイルはディスクに残置）
 - [x] [低] Whisper トランスクリプト冒頭の循環誤認識（"大学に行って..." の繰り返し等）の手当て検討 (#whisper-loop)
       - 2026-05-03 適用。`local_transcriber/transcriber.py` で `condition_on_previous_text=False` を中心に
         Whisperの hallucination 抑制パラメータを明示指定（compression/logprob/no-speech 閾値、温度フォールバック）。
