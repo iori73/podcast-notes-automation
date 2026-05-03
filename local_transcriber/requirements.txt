@@ -12,3 +12,10 @@ openai-whisper>=20231117
 # - google-generativeai (for Gemini API)
 # - pyyaml (for config loading)
 
+
+
+
+
+
+
+

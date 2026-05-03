@@ -64,11 +64,20 @@ class WhisperTranscriber:
         print("   This may take several minutes...")
         
         # Transcribe with Whisper
+        # condition_on_previous_text=False: 前段の出力を次セグメントのプロンプトに混ぜないことで、
+        # 冒頭の誤認識（"大学に行って…"の循環など）が連鎖して長く続くのを抑制する。
+        # compression_ratio_threshold / logprob_threshold はデフォルト値を明示し、
+        # 高圧縮（=ループ）/低尤度のセグメントで温度フォールバックが確実に効くようにする。
         result = self.model.transcribe(
             str(audio_path),
             language=language,
-            verbose=False,  # Disable Whisper's own progress output
-            task="transcribe"
+            verbose=False,
+            task="transcribe",
+            condition_on_previous_text=False,
+            compression_ratio_threshold=2.4,
+            logprob_threshold=-1.0,
+            no_speech_threshold=0.6,
+            temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
         )
         
         detected_language = result.get("language", language)
@@ -195,4 +204,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
 
