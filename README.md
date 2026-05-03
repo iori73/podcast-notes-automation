@@ -10,8 +10,9 @@
 
 - **🎵 Spotify 統合**: Spotify URL からメタデータ・カバー画像取得
 - **🔍 Listen Notes 検索**: 音声ファイル自動検索・ダウンロード
+- **🍎 iTunes/RSS フォールバック**: Apple Podcast経由でRSSから音声取得（Listen Notes失敗時）
 - **🎙️ Whisper 文字起こし**: ローカルで高精度な音声認識（日本語・英語対応）
-- **📄 Spotify HTML 抽出**: 「聴きながら読む」からの文字起こし取得（フォールバック）
+- **📄 Spotify HTML 抽出**: 「聴きながら読む」からの文字起こし取得（最終フォールバック）
 - **📝 Claude チャプター生成**: AIによる高品質なチャプター目次・要約
 - **☁️ Notion 連携**: 自動でデータベースに登録（カバー画像含む）
 
@@ -94,15 +95,26 @@ podcast_notes_automation/
          │ 見つかった                 │ 見つからない
          ▼                           ▼
 ┌─────────────────┐     ┌─────────────────────────────────────┐
-│ 音声ダウンロード │     │ Browser MCP: Spotify HTML取得       │
-└────────┬────────┘     └──────────────────┬──────────────────┘
+│ 音声ダウンロード │     │ iTunes/RSS フォールバック（自動）   │
+└────────┬────────┘     │ 1. iTunes Search APIで番組検索      │
+         │              │ 2. RSSフィードからエピソード検索    │
+         │              │ 3. 音声URLを取得・ダウンロード      │
+         │              └──────────────────┬──────────────────┘
          │                                 │
-         ▼                                 ▼
-┌─────────────────┐     ┌─────────────────────────────────────┐
-│ Whisper文字起こし│     │ HTMLから文字起こし抽出              │
-└────────┬────────┘     └──────────────────┬──────────────────┘
-         │                                 │
-         └─────────────┬───────────────────┘
+         │              ┌──────────────────┴──────────────────┐
+         │              │ 見つかった        │ 見つからない     │
+         │              ▼                   ▼                  │
+         │     ┌─────────────────┐   ┌─────────────────────┐  │
+         │     │ 音声ダウンロード │   │ Spotify HTML取得    │  │
+         │     └────────┬────────┘   │（手動フォールバック）│  │
+         │              │            └──────────┬──────────┘  │
+         │              │                       │              │
+         └──────────────┼───────────────────────┘              │
+                        ▼                                      │
+┌─────────────────────────────────────────────────────────────┐
+│              Whisper文字起こし / HTML抽出                   │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              Claude: チャプター・要約生成                   │
@@ -113,6 +125,17 @@ podcast_notes_automation/
 │              Notion登録（カバー画像含む）                   │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 🍎 iTunes/RSS フォールバック（v3.1.0 新機能）
+
+Listen Notesでエピソードが見つからない場合、自動的にiTunes/RSSフォールバックが実行されます：
+
+1. **iTunes Search API**: 番組名でApple Podcastを検索（無料・認証不要）
+2. **iTunes Lookup API**: Podcast IDからRSSフィードURLを取得
+3. **RSS解析**: フィードからエピソードの音声URLを抽出
+4. **ダウンロード＆文字起こし**: 通常フローと同じ
+
+**対応条件**: Apple Podcastに登録されているポッドキャスト（Spotify独占配信は非対応）
 
 ### 🎯 AIアシスタントへの推奨プロンプト
 
@@ -131,20 +154,25 @@ Spotify URL: [URL]
 ※チャプター目次・要約・Notion登録まで一括でお願いします
 ```
 
-### 🔍 ワークフローA: Listen Notes経由（音声精度が高い）
+### 🔍 ワークフローA: 完全自動（推奨）
 
 ```bash
 python process_unified.py "https://open.spotify.com/episode/xxx"
 ```
 
+**自動フォールバック順序**:
+1. Listen Notes検索 → 見つかれば音声ダウンロード
+2. iTunes/RSS検索 → Apple Podcastから音声取得
+3. 両方失敗 → 手動フォールバックの案内
+
 **特徴**:
 - ✅ 音声から直接文字起こしするため精度が高い
-- ✅ 完全自動化（Listen Notesで見つかる場合）
-- ⚠️ Listen Notesで見つからない場合はフォールバック必要
+- ✅ ほぼ完全自動化（Apple Podcastに登録されていれば）
+- ⚠️ Spotify独占配信の場合は手動フォールバック必要
 
-### 📄 ワークフローB: Spotify HTML（フォールバック）
+### 📄 ワークフローB: Spotify HTML（手動フォールバック）
 
-Listen Notesで見つからない場合、Spotifyの「聴きながら読む」機能を使用：
+自動検索がすべて失敗した場合、Spotifyの「聴きながら読む」機能を使用：
 
 1. **Browser MCPでSpotify URLを開く**
 2. **「聴きながら読む」からHTMLを取得**
@@ -155,7 +183,7 @@ python process_spotify_transcript.py transcript.html "https://open.spotify.com/e
 ```
 
 **特徴**:
-- ✅ Listen Notesで見つからなくても処理可能
+- ✅ Spotify独占配信でも処理可能
 - ✅ ほぼすべてのSpotifyエピソードに対応
 - ⚠️ Spotify側の文字起こし品質に依存
 
@@ -195,10 +223,11 @@ python local_transcriber/process.py <音声ファイル> --language ja --spotify
 ### 処理フローの詳細
 
 1. **Spotifyからメタデータ取得**: タイトル、番組名、公開日、カバー画像URL
-2. **音声ファイル取得**:
-   - Listen Notes APIでエピソードを検索
-   - 見つかった場合：音声ファイルをダウンロード・検証
-   - 見つからない場合：ローカル`data/downloads/`を検索、またはBrowser MCPでSpotify HTML取得
+2. **音声ファイル取得**（自動フォールバック）:
+   - **Step 1**: Listen Notes APIでエピソードを検索
+   - **Step 2**: 見つからない場合 → iTunes Search APIで番組検索 → RSSから音声URL取得
+   - **Step 3**: それも失敗 → ローカル`data/downloads/`を検索
+   - **Step 4**: すべて失敗 → 手動フォールバックの案内（Spotify HTML）
 3. **文字起こし処理**:
    - 音声の場合：Whisper（ローカル）で高精度文字起こし
    - HTMLの場合：BeautifulSoupで抽出・整形
@@ -261,7 +290,8 @@ podcast-notes-automation/
 │   ├── listen_notes.py         # Listen Notes API
 │   ├── utils.py                # ユーティリティ
 │   └── integrations/
-│       └── notion_client.py    # Notion API
+│       ├── notion_client.py    # Notion API
+│       └── itunes_rss.py       # iTunes/RSS フォールバック (v3.1.0)
 ├── local_transcriber/          # ローカル文字起こし
 │   ├── transcriber.py          # Whisper
 │   ├── summarizer.py           # Ollama (オプション)
@@ -277,7 +307,8 @@ podcast-notes-automation/
 
 ✅ **Whisper対応**: ローカル文字起こし（日本語・英語）  
 ✅ **Notion連携**: 全文アップロード（100ブロック制限回避）  
-✅ **フォールバック**: Listen Notes失敗時のSpotify HTML処理  
+✅ **iTunes/RSS**: Listen Notes失敗時の自動フォールバック（無料API）  
+✅ **Spotify HTML**: iTunes/RSS失敗時の手動フォールバック  
 ✅ **日英対応**: 完了
 
 ## 📖 詳細ドキュメント
@@ -307,7 +338,13 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 
 ---
 
-**作成**: 2024 年 12 月 | **更新**: 2026 年 1 月 | **バージョン**: 3.0.0
+**作成**: 2024 年 12 月 | **更新**: 2026 年 1 月 | **バージョン**: 3.1.0
+
+### v3.1.0 変更点 (2026-01-05)
+- 🍎 **iTunes/RSSフォールバック**: Listen Notes失敗時に自動でApple Podcast経由で音声取得
+- iTunes Search API・Lookup API（無料・認証不要）でRSSフィードURL取得
+- RSSパースで該当エピソードの音声URLを自動抽出
+- 追加の依存関係なし（標準ライブラリのみ使用）
 
 ### v3.0.0 変更点
 - `process_unified.py`: 統合処理スクリプト追加

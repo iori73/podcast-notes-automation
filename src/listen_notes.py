@@ -219,13 +219,19 @@ class ListenNotesClient:
     def download_episode(self, episode_url, episode_title):
         """エピソードの音声をダウンロード"""
         try:
-            # エピソードIDを抽出
-            episode_id = episode_url.split('/')[-2]
+            # listennotes_url は通常 .../e/{episode_id}/ の形
+            parts = [p for p in episode_url.split("/") if p]
+            if "e" in parts:
+                episode_id = parts[parts.index("e") + 1]
+            else:
+                # fallback: 末尾が / で終わる場合を想定
+                episode_id = parts[-1]
             
             # APIを使用して音声URLを取得
             response = requests.get(
                 f"{self.base_url}/episodes/{episode_id}",
-                headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']}
+                headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']},
+                timeout=30
             )
             
             if response.status_code != 200:
@@ -240,7 +246,7 @@ class ListenNotesClient:
             filename = self.download_dir / f"{safe_title}.mp3"
             
             # 音声ファイルをダウンロード
-            audio_response = requests.get(audio_url, stream=True)
+            audio_response = requests.get(audio_url, stream=True, timeout=30)
             if audio_response.status_code == 200:
                 with open(filename, 'wb') as f:
                     for chunk in audio_response.iter_content(chunk_size=8192):
@@ -252,44 +258,19 @@ class ListenNotesClient:
         except Exception as e:
             raise Exception(f"Download error: {str(e)}")
 
-
-
-    
-
-    def download_episode(self, episode_url, episode_title):
-        """エピソードの音声をダウンロード"""
-        try:
-            # エピソードURLから音声URLを生成
-            audio_url = episode_url.replace('www.', 'audio.').replace('/e/', '/e/p/')
-            
-            # ファイル名に使用できない文字を置換してタイトルを安全な形式に
-            safe_title = episode_title.replace('/', '_').replace(':', '_')
-            filename = self.download_dir / f"{safe_title}.mp3"
-            
-            # 音声ファイルをダウンロード
-            response = requests.get(audio_url, stream=True)
-            if response.status_code == 200:
-                with open(filename, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                return filename
-            
-            raise Exception(f"Failed to download file: {response.status_code}")
-        except Exception as e:
-            raise Exception(f"Download error: {str(e)}")
-
-
-        
-
     def get_download_url(self, episode_url):
         """エピソードURLからダウンロードURLを取得"""
         # APIを使用してダウンロードURLを取得
         try:
-            episode_id = episode_url.split('/')[-1]
+            parts = [p for p in episode_url.split("/") if p]
+            if "e" in parts:
+                episode_id = parts[parts.index("e") + 1]
+            else:
+                episode_id = parts[-1]
             response = requests.get(
                 f"{self.base_url}/episodes/{episode_id}",
-                headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']}
+                headers={'X-ListenAPI-Key': self.config['listen_notes']['api_key']},
+                timeout=30
             )
             
             if response.status_code == 200:
