@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 import time
 from selenium.webdriver.support.ui import Select
-import google.generativeai as genai
+from google import genai
 from utils import load_config
 from account_manager import AccountManager
 
@@ -20,28 +20,30 @@ class SummaryFMProcessor:
         self.setup_driver()
         # Gemini APIの設定
         config = load_config()
-        genai.configure(api_key=config["gemini"]["api_key"])
+        self.gemini_client = genai.Client(api_key=config["gemini"]["api_key"])
 
         # 利用可能なモデルを試す（無料枠で使える安定版）
-        self.model = None
+        self.model_name = None
         model_names = [
-            "gemini-1.5-flash",  # 安定版Flashモデル
-            "gemini-1.5-pro",  # 安定版Proモデル
-            "gemini-pro",  # 古い安定版（フォールバック）
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-pro",
         ]
 
-        for model_name in model_names:
+        for name in model_names:
             try:
-                self.model = genai.GenerativeModel(model_name)
-                print(f"✅ Gemini APIモデル初期化成功: {model_name}")
+                self.gemini_client.models.generate_content(model=name, contents="ping")
+                self.model_name = name
+                print(f"✅ Gemini APIモデル初期化成功: {name}")
                 break
             except Exception as e:
-                # 最初のモデルで失敗した場合のみ警告を表示
-                if model_name == model_names[0]:
-                    print(f"⚠️ モデル {model_name} を試行中...")
+                if name == model_names[0]:
+                    print(f"⚠️ モデル {name} を試行中...")
                 continue
 
-        if self.model is None:
+        if self.model_name is None:
             print("⚠️ Gemini APIが利用できません。翻訳機能は無効化されます。")
 
         # アカウント管理の初期化
@@ -166,7 +168,7 @@ class SummaryFMProcessor:
     def translate_to_english(self, text, sentence_count=10):
         """日本語テキストを英語に翻訳"""
         # Gemini APIが利用できない場合はスキップ
-        if self.model is None:
+        if self.model_name is None:
             print("⚠️ Gemini APIが利用できないため、翻訳をスキップします")
             return "[Translation unavailable - Gemini API not initialized]"
 
@@ -198,7 +200,9 @@ class SummaryFMProcessor:
                 """
 
                 try:
-                    response = self.model.generate_content(prompt)
+                    response = self.gemini_client.models.generate_content(
+                        model=self.model_name, contents=prompt
+                    )
                     if response and response.text:
                         translated_sentences.append(response.text)
                         # APIレート制限を避けるため少し待機

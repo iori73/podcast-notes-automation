@@ -1,11 +1,10 @@
 # src/test_summary.py
-import google.generativeai as genai
+from google import genai
 from utils import load_config
 
 def generate_podcast_summary(text):
     config = load_config()
-    genai.configure(api_key=config['gemini']['api_key'])
-    model = genai.GenerativeModel('gemini-pro')
+    client = genai.Client(api_key=config['gemini']['api_key'])
     
     prompt = f"""
     以下のポッドキャストの内容を要約してください。
@@ -17,7 +16,7 @@ def generate_podcast_summary(text):
     {text}
     """
     
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
     return response.text
 
 if __name__ == "__main__":
