@@ -120,6 +120,44 @@ def gemini_generate(client, models: list, prompt: str, max_retries: int = 8) -> 
     return None
 
 
+def regenerate_chapter_titles(client, models: list, title: str, show: str, timestamps: str) -> str:
+    """既存 Timestamps ('MM:SS 断片' の羅列) から、適切な章タイトルを再生成する。
+
+    既存エピソードの多くはチャプタータイトルが文字起こしの断片になっている。
+    その断片を「内容メモ」として Gemini に渡し、区間の要点を表す短いタイトルに直す。
+    失敗時は既存 timestamps をそのまま返す（悪化させない）。
+    """
+    if not timestamps or not timestamps.strip():
+        return timestamps
+    ts_lines = [ln.strip() for ln in timestamps.splitlines()
+                if re.match(r'^\d{1,2}:\d{2}', ln.strip())]
+    if not ts_lines:
+        return timestamps
+    context = "\n".join(ts_lines)
+    prompt = f"""あなたはポッドキャストの編集者です。以下の時刻ごとの内容メモ（文字起こしの断片）から、章タイトル（チャプター目次）を作ってください。
+
+条件:
+- 各行の時刻（MM:SS）はそのまま維持（変更しない・行数も同じ）
+- 時刻の後に、その区間の要点を表す短いタイトルを付ける（内容と同じ言語で 15〜30文字程度）
+- 入力は断片的な文字起こしなので、そのまま使わず要約したタイトルにする
+- 出力は「MM:SS タイトル」のみ（余計な説明は禁止）
+
+番組: {show}
+回: {title}
+
+内容メモ:
+{context}
+
+出力:
+""".strip()
+    result = gemini_generate(client, models, prompt)
+    if not result:
+        return timestamps
+    out_lines = [ln.strip() for ln in result.splitlines()
+                 if re.match(r'^\d{1,2}:\d{2}', ln.strip())]
+    return "\n".join(out_lines) if out_lines else timestamps
+
+
 # --- Notion ヘルパー ---
 def fetch_all_pages(notion: NotionClient, limit: Optional[int] = None) -> list:
     """Notion DBから全ページを取得（ページネーション対応）。"""
@@ -205,7 +243,7 @@ def extract_block_text(block: dict) -> str:
 
 def extract_sections_from_blocks(blocks: list) -> dict:
     """ブロックリストからセクション別テキストを抽出する。"""
-    sections = {"summary": "", "timestamps": "", "transcript": "", "other": ""}
+    sections = {"summary": "", "key_takeaways": "", "timestamps": "", "transcript": "", "other": ""}
     current = "other"
 
     for block in blocks:
@@ -226,7 +264,8 @@ def extract_sections_from_blocks(blocks: list) -> dict:
                 current = "other"  # スキップ
                 continue
             elif "Key Takeaways" in text:
-                current = "other"  # 既存のKey Takeawaysは捨てる（再生成する）
+                # 通常フローでは再生成するので無視されるが、chapters-only では再利用する
+                current = "key_takeaways"
                 continue
 
         # toggleブロック内のtranscriptも取得
@@ -408,6 +447,7 @@ def process_page(
     gemini_models: list,
     page: dict,
     dry_run: bool = True,
+    chapters_only: bool = False,
 ) -> bool:
     """1ページを処理する。"""
     page_id = page["id"]
@@ -459,23 +499,35 @@ def process_page(
     backup_path = BACKUP_DIR / f"{page_id.replace('-', '')}.json"
     backup_path.write_text(json.dumps(backup_data, indent=2, ensure_ascii=False))
 
-    # LLMでSummary + Key Takeaways生成
-    print(f"   🧠 Summary + Key Takeaways生成中...")
-    summary, takeaways = generate_summary_and_takeaways(
-        gemini_client, gemini_models, title, show, transcript
-    )
-    if not summary:
-        print(f"   ❌ Summary生成失敗（スキップ）")
-        return False
-
-    # Category分類（空の場合のみ）
-    new_category = None
-    if not category:
-        print(f"   🏷️ Category分類中...")
-        new_category = classify_category(
-            gemini_client, gemini_models, title, show, transcript[:300]
+    if chapters_only:
+        # 既存の Summary / Key Takeaways / Category を保持し、チャプターだけ直す
+        summary = sections.get("summary", "")
+        takeaways = sections.get("key_takeaways", "")
+        new_category = None
+        if not summary:
+            print(f"   ⏭️ 既存 Summary が空（chapters-only スキップ）")
+            return False
+        if not timestamps:
+            print(f"   ⏭️ Timestamps が空（chapters-only スキップ）")
+            return False
+    else:
+        # LLMでSummary + Key Takeaways生成
+        print(f"   🧠 Summary + Key Takeaways生成中...")
+        summary, takeaways = generate_summary_and_takeaways(
+            gemini_client, gemini_models, title, show, transcript
         )
-        print(f"   → Category: {new_category}")
+        if not summary:
+            print(f"   ❌ Summary生成失敗（スキップ）")
+            return False
+
+        # Category分類（空の場合のみ）
+        new_category = None
+        if not category:
+            print(f"   🏷️ Category分類中...")
+            new_category = classify_category(
+                gemini_client, gemini_models, title, show, transcript[:300]
+            )
+            print(f"   → Category: {new_category}")
 
     # 新テンプレートでMarkdown生成
     takeaways_section = ""
@@ -488,6 +540,10 @@ def process_page(
 
     timestamps_section = ""
     if timestamps:
+        print(f"   📑 チャプタータイトル再生成中...")
+        timestamps = regenerate_chapter_titles(
+            gemini_client, gemini_models, title, show, timestamps
+        )
         timestamps_section = f"""## Timestamps
 
 {timestamps}
@@ -547,6 +603,8 @@ def main():
     parser.add_argument("--limit", type=int, help="処理件数の上限")
     parser.add_argument("--page-id", type=str, help="特定ページのみ処理")
     parser.add_argument("--resume", action="store_true", help="前回の中断から再開")
+    parser.add_argument("--chapters-only", action="store_true",
+                        help="Summary/Takeaways は保持し、チャプタータイトルのみ再生成する")
     args = parser.parse_args()
 
     notion = NotionClient()
@@ -603,7 +661,8 @@ def main():
         print(f"\n[{i}/{len(pages)}] {title_short}")
 
         try:
-            result = process_page(notion, gemini_client, gemini_models, page, dry_run=dry_run)
+            result = process_page(notion, gemini_client, gemini_models, page,
+                                  dry_run=dry_run, chapters_only=args.chapters_only)
             if result:
                 success_count += 1
                 if not dry_run:

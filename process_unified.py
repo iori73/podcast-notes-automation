@@ -67,16 +67,29 @@ class UnifiedProcessor:
         self.source = None  # 'whisper', 'spotify_html', 'itunes_rss', or 'manual'
 
     def _init_gemini(self):
-        """Initialize Gemini client if configured."""
+        """Initialize Gemini client if configured.
+
+        NOTE: Gemini is REQUIRED for Summary / Key Takeaways / Timestamps
+        generation. If it fails to initialize, the script silently falls back
+        to placeholder text, producing broken Notion pages. We loudly warn
+        here so the failure is visible. (Bug fixed 2026-05-03: missing
+        google-genai package caused silent placeholder output.)
+        """
         self.gemini_client = None
         self.gemini_model_name = None
         try:
             config = load_config()
             api_key = (config.get("gemini") or {}).get("api_key")
             if not api_key:
+                print("⚠️  WARNING: Gemini api_key missing in config.yaml — Summary/Key Takeaways/Timestamps will be PLACEHOLDERS only.")
                 return
 
-            from google import genai
+            try:
+                from google import genai
+            except ImportError:
+                print("⚠️  WARNING: `google-genai` package not installed — Summary/Key Takeaways/Timestamps will be PLACEHOLDERS only.")
+                print("   Fix: pip install google-genai  (also listed in requirements.txt)")
+                return
 
             client = genai.Client(api_key=api_key)
             for name in ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
@@ -84,26 +97,86 @@ class UnifiedProcessor:
                     client.models.generate_content(model=name, contents="ping")
                     self.gemini_client = client
                     self.gemini_model_name = name
+                    print(f"✅ Gemini initialized: {name}")
                     break
                 except Exception:
                     continue
-        except Exception:
+            if not self.gemini_client:
+                print("⚠️  WARNING: All Gemini model probes failed — check API key/quota. Output will be PLACEHOLDERS.")
+        except Exception as e:
+            print(f"⚠️  WARNING: Gemini init failed: {e}. Output will be PLACEHOLDERS.")
             self.gemini_client = None
             self.gemini_model_name = None
 
+    _gemini_call_times: List[float] = []  # class-level shared rate-limit window (set on UnifiedProcessor)
+
     def _gemini_generate(self, prompt: str) -> Optional[str]:
-        """Generate text via Gemini if available."""
+        """Generate text via Gemini with retry + rate limiting.
+
+        Free tier limit is 5 RPM for gemini-2.5-flash. We enforce a soft
+        rate limit (~13s spacing) and retry on 429/503 with backoff.
+        """
         if not self.gemini_client or not self.gemini_model_name:
             return None
-        try:
-            resp = self.gemini_client.models.generate_content(
-                model=self.gemini_model_name, contents=prompt
-            )
-            text = getattr(resp, "text", None)
-            return text.strip() if text else None
-        except Exception as e:
-            print(f"⚠️ Gemini error: {e}")
-            return None
+
+        import time as _time
+        # Soft rate-limit: ensure ≤4 calls in any 70s window before next call
+        now = _time.time()
+        recent = [t for t in UnifiedProcessor._gemini_call_times if now - t < 70]
+        if len(recent) >= 4:
+            wait = 70 - (now - recent[-4])
+            if wait > 0:
+                _time.sleep(wait)
+
+        max_attempts = 6
+        delay = 5.0
+        last_err = None
+        from google.genai import types as _genai_types
+        gen_config = _genai_types.GenerateContentConfig(
+            max_output_tokens=4096,
+            thinking_config=_genai_types.ThinkingConfig(thinking_budget=0),
+        )
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = self.gemini_client.models.generate_content(
+                    model=self.gemini_model_name, contents=prompt, config=gen_config
+                )
+                UnifiedProcessor._gemini_call_times.append(_time.time())
+                UnifiedProcessor._gemini_call_times = UnifiedProcessor._gemini_call_times[-10:]
+                text = getattr(resp, "text", None)
+                if text:
+                    return text.strip()
+                reason = None
+                candidates = getattr(resp, "candidates", None)
+                if candidates:
+                    reason = getattr(candidates[0], "finish_reason", None)
+                if attempt < max_attempts:
+                    print(f"⏳ Gemini returned empty response (finish_reason={reason}, attempt {attempt}/{max_attempts}), retrying in {delay:.0f}s...")
+                    _time.sleep(delay)
+                    delay = min(delay * 1.8, 60)
+                    continue
+                print(f"⚠️ Gemini gave up after {attempt} attempts: empty response (finish_reason={reason})")
+                return None
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                wait_s = delay
+                import re as _re
+                m = _re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s", msg)
+                if m:
+                    wait_s = float(m.group(1)) + 2
+                is_rate = ("429" in msg or "RESOURCE_EXHAUSTED" in msg
+                           or "503" in msg or "UNAVAILABLE" in msg)
+                if attempt < max_attempts and is_rate:
+                    print(f"⏳ Gemini rate/avail issue (attempt {attempt}/{max_attempts}), sleeping {wait_s:.0f}s...")
+                    _time.sleep(wait_s)
+                    delay = min(delay * 1.8, 60)
+                    continue
+                print(f"⚠️ Gemini error after {attempt} attempts: {e}")
+                return None
+        print(f"⚠️ Gemini gave up: {last_err}")
+        return None
 
     def _split_text(self, text: str, max_chars: int) -> List[str]:
         """Split long text into chunks, trying to respect sentence boundaries."""
@@ -178,9 +251,11 @@ class UnifiedProcessor:
 
     def _generate_summary_and_timestamps(self, language: str):
         """Generate summary and timestamps (chapter titles) from transcript via Gemini."""
+        self.gemini_ok = True  # set False on any failure below
         if not self.gemini_client:
             self.chapters = self._generate_chapter_placeholders()
             self.summary = self._generate_summary_placeholder()
+            self.gemini_ok = False
             return
 
         lang = "日本語" if language == "ja" else "English"
@@ -254,18 +329,24 @@ Key Takeaways:
             # SummaryとKey Takeawaysを分割
             parts = re.split(r'Key Takeaways:\s*\n', final, maxsplit=1)
             if len(parts) == 2:
-                summary_part = parts[0].strip()
-                # "Summary:" ヘッダーを除去
-                summary_part = re.sub(r'^Summary:\s*\n?', '', summary_part).strip()
-                self.summary = summary_part
+                summary_part = parts[0]
+                # Geminiが時々前置き（"承知いたしました…"等）を付けたうえで
+                # "Summary:" ラベルを出す。ラベルがあればそれ以降を本文として採用し、
+                # ラベルより前の前置きごと除去する（^アンカーだと前置きがあると剥がせない）。
+                m = re.search(r'Summary\s*[:：]\s*\n?', summary_part)
+                if m:
+                    summary_part = summary_part[m.end():]
+                self.summary = summary_part.strip()
                 self.key_takeaways = parts[1].strip()
             else:
                 # フォールバック: 分割できなかった場合は全体をsummaryに
                 self.summary = final.strip()
                 self.key_takeaways = None
+                self.gemini_ok = False
         else:
             self.summary = self._generate_summary_placeholder()
             self.key_takeaways = None
+            self.gemini_ok = False
 
         # --- Timestamps / Chapters ---
         chapter_items = self._build_chapter_context(interval_sec=300, max_items=14)
@@ -291,7 +372,11 @@ Key Takeaways:
 出力:
 """.strip()
         chapters = self._gemini_generate(chapter_prompt)
-        self.chapters = chapters.strip() if chapters else self._generate_chapter_placeholders()
+        if chapters:
+            self.chapters = chapters.strip()
+        else:
+            print("⚠️ Chapter title generation failed — falling back to raw-snippet timestamps (Summary/Key Takeaways unaffected).")
+            self.chapters = self._generate_chapter_placeholders()
 
     VALID_CATEGORIES = [
         "Technology", "Biology & Nature", "Science", "Design & Art",
@@ -358,9 +443,18 @@ Content: {transcript_head}"""
         self._print_episode_info()
         
         # Determine language (from Spotify or override)
+        # Why: Spotify's episode.language is set by the publisher and is sometimes wrong
+        # (e.g. ep #382 was tagged "en" despite being Japanese). Whisper treats `language`
+        # as a HARD override (not a hint) — passing the wrong code makes it force-fit audio
+        # to that language, producing garbage transliteration instead of a real transcript.
+        # If you suspect mistagging, pass --language ja|en explicitly, or set language=None
+        # below to let Whisper auto-detect.
         detected_language = self.episode_info.get('language', 'ja')
         effective_language = language or detected_language
-        print(f"\n🌐 Language: {effective_language}")
+        print(f"\n🌐 Language: {effective_language}  (source: {'CLI override' if language else 'Spotify metadata'})")
+        if not language:
+            print("   ⚠️  Spotify metadata may be mistagged. If transcript looks wrong, "
+                  "rerun with --language ja or --language en.")
         
         # Step 2: Get Transcript (multiple methods)
         print("\n" + "=" * 60)
@@ -443,10 +537,15 @@ Content: {transcript_head}"""
         
         # Step 5: Upload to Notion
         if not no_notion:
+            if not getattr(self, "gemini_ok", True):
+                print("\n❌ ABORTING Notion upload: Gemini failed to generate Summary/Key Takeaways/Timestamps.")
+                print("   The output would be a broken page. Re-run after Gemini quota resets.")
+                return {"success": False, "error": "gemini_failed", "output_path": str(output_path)}
+
             print("\n" + "=" * 60)
             print("STEP 5: Uploading to Notion")
             print("=" * 60)
-            
+
             notion_result = self._upload_to_notion(spotify_url, output_path)
             if notion_result:
                 print("✅ Notion upload complete!")
@@ -788,11 +887,10 @@ Content: {transcript_head}"""
             minutes = int(parts[0])
             
             if minutes >= last_minute + 3:
-                # Get first sentence as placeholder
-                first_sentence = text.split('。')[0] if '。' in text else text[:50]
-                if len(first_sentence) > 50:
-                    first_sentence = first_sentence[:47] + '...'
-                key_chapters.append(f"{ts} {first_sentence}")
+                # Neutral placeholder ONLY — never emit raw transcript as a title
+                # (that produced fragment "titles"). Real titles come from Gemini,
+                # or from the batch chapter-title regeneration for existing episodes.
+                key_chapters.append(f"{ts} チャプター{len(key_chapters) + 1}")
                 last_minute = minutes
         
         return '\n'.join(key_chapters) if key_chapters else "チャプター情報なし"
