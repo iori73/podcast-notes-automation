@@ -154,6 +154,8 @@ class NotionClient:
         blocks = []
         self._transcript_overflow_blocks = []
         transcript_blocks = []  # toggleのchildren用
+        # Notionは Markdown の **bold** を解釈しないので、全テキストから先にリテラル化を防ぐ
+        markdown = re.sub(r"\*\*(.+?)\*\*", r"\1", markdown)
         lines = markdown.split("\n")
         current_section = None  # "timestamps", "transcript", "summary", "takeaways", None
         current_paragraph = []
@@ -318,8 +320,10 @@ class NotionClient:
                         ]
                     }
                 })
-            elif line.startswith("- "):
-                # リスト項目の処理
+            elif (line.startswith("- ") or
+                  re.match(r"^\*\s+\S", line) or
+                  re.match(r"^•\s+\S", line)):
+                # リスト項目の処理（- , * , • のいずれも受け付け、Geminiの "*   **..." 形式に対応）
                 if current_paragraph:
                     paragraph_text = "\n".join(current_paragraph)
                     chunks = self._split_text_into_chunks(paragraph_text, max_length=2000)
@@ -338,8 +342,10 @@ class NotionClient:
                         })
                     current_paragraph = []
                 
-                # リスト項目を個別のブロックに
-                list_text = line[2:].strip()
+                # リスト項目を個別のブロックに（先頭マーカーを除去）
+                list_text = re.sub(r"^[-*•]\s+", "", line).strip()
+                # 太字 **text** を平文へ変換（Notionは ** マークアップを解釈しないため）
+                list_text = re.sub(r"\*\*(.+?)\*\*", r"\1", list_text)
                 # リンクの処理
                 link_pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
                 rich_text = []

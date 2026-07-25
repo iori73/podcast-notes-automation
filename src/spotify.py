@@ -136,6 +136,10 @@ class SpotifyClient:
             episode = self.sp.episode(episode_id)
 
             # 言語情報を取得（Spotifyは'en', 'ja'などのISO 639-1コードを使用）
+            # ⚠️ 注意: この値は配信者が手動で設定するメタデータで、誤登録されることがある
+            # （例: ep #382 は日本語音声なのに "en" タグだった）。呼び出し側はこの値を
+            # Whisperの language 引数にそのまま渡さないこと（Whisperはこれを強制指定として扱い、
+            # 違う言語の音声を無理に当てはめて読み取り不能な出力になる）。
             language = episode.get("language", "ja")
 
             # 番組名を取得
@@ -178,7 +182,69 @@ class SpotifyClient:
 
         except Exception as e:
             print(f"Spotify APIエラー: {str(e)}")
+            # Fallback: the Web API rejects episode/show reads with a 403
+            # ("Active premium subscription required for the owner of the app")
+            # whenever the app owner's Spotify account is not on an active
+            # Premium plan. That block is server-side and unrelated to our
+            # credentials, so scrape the public episode page's OpenGraph tags
+            # to recover enough metadata to keep the pipeline running.
+            fallback = self._scrape_episode_og(url)
+            if fallback:
+                print("↩️  Recovered metadata from public page (OpenGraph fallback)")
+                return fallback
             raise
+
+    def _scrape_episode_og(self, url):
+        """Recover episode metadata from the public open.spotify.com page.
+
+        Used when the Web API is unavailable (e.g. the app-owner-premium 403).
+        Returns the same dict shape as get_episode_info, or None on failure.
+        """
+        import re as _re
+        import requests as _requests
+
+        try:
+            episode_id = url.split("/")[-1].split("?")[0]
+            # Spotify serves the OpenGraph-rich page only to crawler-style
+            # User-Agents; a full browser UA gets the JS web-player shell that
+            # has no og:title/og:image. Use a known crawler UA.
+            headers = {"User-Agent": "facebookexternalhit/1.1"}
+            resp = _requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            html = resp.text
+
+            def _meta(prop):
+                m = _re.search(
+                    r'<meta[^>]+(?:property|name)=["\']' + _re.escape(prop)
+                    + r'["\'][^>]+content=["\']([^"\']*)["\']',
+                    html,
+                )
+                return m.group(1) if m else ""
+
+            title = _meta("og:title")
+            if not title:
+                return None
+
+            # og:description is "<show name> · Episode" for episodes.
+            raw_desc = _meta("og:description")
+            show_name = _re.sub(r"\s*·\s*Episode\s*$", "", raw_desc).strip()
+
+            duration_s = _meta("music:duration")
+            duration_ms = int(duration_s) * 1000 if duration_s.isdigit() else 0
+
+            return {
+                "id": episode_id,
+                "title": title,
+                "show_name": show_name,
+                "cover_image_url": _meta("og:image"),
+                "description": raw_desc,
+                "release_date": "",  # not exposed via OpenGraph
+                "duration_ms": duration_ms,
+                "language": "ja",  # OG has no language; caller may override
+            }
+        except Exception as scrape_err:
+            print(f"OpenGraph fallback failed: {scrape_err}")
+            return None
 
     def get_show_info(self, show_url):
         """SpotifyのShow URLから番組情報を取得"""
