@@ -82,11 +82,30 @@ curl http://localhost:8765/v1/health
 ### 1-3. ログイン時に自動起動する
 
 ```bash
-cp server/com.iorikawano.podcast-notes-remote.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.iorikawano.podcast-notes-remote.plist
+bash server/install-agent.sh              # 登録
+bash server/install-agent.sh --uninstall  # 解除
 ```
 
-ログは `logs/remote-server.log` に出る。
+launchd の設定ファイルはこのスクリプトがリポジトリの実際の位置から組み立てるので、
+チェックアウト場所が変わっても壊れない。手動起動していたサーバは自動で止めてから登録する。
+
+ログは `logs/remote-server.log` と `logs/remote-server.err.log` に出る。
+
+> **重要: このリポジトリを `~/Documents` / `~/Desktop` / `~/Downloads` の下に置くと自動起動は動かない。**
+>
+> macOS の TCC がこれらのフォルダをアプリごとの許可制にしており、launchd から
+> 起動されたプロセスは許可を持たない。しかも裏で動くプロセスには許可を求める
+> ダイアログが出ないため、`Operation not permitted` で無言に失敗し続ける
+> （config だけでなくリポジトリ内の全ファイルが読めない）。
+>
+> 対処は次のどちらか。
+>
+> 1. **リポジトリを保護対象外の場所に置く**（`~/dev/…` など）。権限を増やさずに済む
+> 2. launchd が使う python にフルディスクアクセスを与える。設定は 1 回で済むが、
+>    その python で動く他のスクリプトにも強い権限が付く
+>
+> 自動起動を諦めてターミナルから `python3 server/app.py` を叩く運用なら、
+> 置き場所は問わない（ターミナルには許可があるため）。
 
 ### 1-4. Mac をスリープさせない
 

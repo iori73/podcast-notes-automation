@@ -31,7 +31,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-DEFAULT_PROJECT_DIR = Path("/Users/iorikawano/Documents/podcast-notes-automation")
+# このファイルが置かれているリポジトリを既定の作業対象にする。
+# 絶対パスを直書きしないので、リポジトリを移動しても壊れない。
+# 別の場所を対象にしたいときは PODCAST_NOTES_PROJECT_DIR で上書きする。
+DEFAULT_PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 SPOTIFY_EPISODE_RE = re.compile(
     r"https?://open\.spotify\.com/(?:[a-z-]+/)?episode/[A-Za-z0-9]+"
