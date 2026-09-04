@@ -15,6 +15,7 @@
 - **📄 Spotify HTML 抽出**: 「聴きながら読む」からの文字起こし取得（最終フォールバック）
 - **📝 Claude チャプター生成**: AIによる高品質なチャプター目次・要約
 - **☁️ Notion 連携**: 自動でデータベースに登録（カバー画像含む）
+- **📱 iPhone から実行**: Spotify URL と追加の依頼をスマホから投げる（[docs/REMOTE_APP.md](docs/REMOTE_APP.md)）
 
 ## ⚡ クイックスタート
 
@@ -71,6 +72,8 @@ podcast_notes_automation/
 ├── 🔌 integrations/         # 外部API統合
 ├── 💾 database/             # データベース管理
 ├── 🌐 web/                  # Web インターフェース
+├── 📡 server/               # iPhone 用ジョブサーバ
+├── 📱 ios/                  # iPhone アプリ（SwiftUI）
 ├── 🧪 tests/                # テストファイル
 ├── ⚙️  config/               # 設定・依存関係
 ├── 📊 data/                 # データファイル

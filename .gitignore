@@ -12,6 +12,12 @@ data/
 process_log.txt
 *.log
 
+# Xcode (iOS リモートアプリ)
+xcuserdata/
+*.xcuserstate
+DerivedData/
+ios/build/
+
 # Personal/runtime artifacts
 .claude/
 .playwright-mcp/
