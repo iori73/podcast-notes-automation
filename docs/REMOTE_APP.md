@@ -135,7 +135,22 @@ Xcode で iPhone を繋いで Run。無料の Apple ID でも実機に入る（7
 > `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
 > （一時的に回避するなら `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ...`）
 
-初回起動したら「設定」タブでサーバの URL とトークンを入力し、「接続を確認」を押す。
+### 初回設定（トークンを手打ちしない）
+
+43 文字のトークンを iPhone のキーボードで打つのは辛いので、設定を流し込む URL を出せる。
+
+```bash
+python3 server/app.py --setup-link
+```
+
+Tailscale が入っていればその名前、入っていなければ LAN の IP を使ったリンクが出る。
+iPhone の Safari で開く（メモやメッセージ経由で自分に送ってタップでもよい）と、
+「Open in "Podcast Notes"?」→ Open で設定が入る。
+
+手で入れる場合は「設定」タブに URL とトークンを入力。
+どちらの場合も最後に「接続を確認」を押して ✅ になることを確かめる。
+
+> リンクにはトークンが平文で入る。人に共有しないこと。
 
 ---
 
@@ -157,11 +172,14 @@ Spotify アプリの共有シートから直接投げたい場合は、ショー
 これで Spotify の共有シートから 2 タップで投げられる。
 状況の確認はアプリの「履歴」タブで。
 
-アプリを開いて URL を入れた状態にしたいだけなら、URL スキームでも呼べる:
+### URL スキーム
 
-```
-podcastnotes://submit?url=<URL エンコードした Spotify URL>
-```
+| URL | 動作 |
+| --- | --- |
+| `podcastnotes://submit?url=<Spotify URL>` | アプリを開いて URL 欄に入れた状態にする |
+| `podcastnotes://configure?server=<host:port>&token=<token>` | 接続設定を流し込む（`--setup-link` が出すもの） |
+
+値は URL エンコードして渡す。
 
 ---
 

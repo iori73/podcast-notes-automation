@@ -20,9 +20,11 @@
 		CB8EA9C1F943A5851EA5A87C /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49445578D6FBE222CFE34F3B /* AppSettings.swift */; };
 		DC112FFED715476FE8E166AD /* JobRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961C0DFC10A9CF4B374FCD7F /* JobRow.swift */; };
 		F5272C30A67505A7CF06E638 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3808A0E95B0189F0C1D0C52 /* RootView.swift */; };
+		F86EE1CAC57F5C9E5CFC44FB /* IncomingAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0296220FBEC8CE51A6BEFD /* IncomingAction.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0B0296220FBEC8CE51A6BEFD /* IncomingAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncomingAction.swift; sourceTree = "<group>"; };
 		0B35F4B078EC181B159E560B /* JobsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsModel.swift; sourceTree = "<group>"; };
 		2F1C98DAE15C85F85E32AEF0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		49445578D6FBE222CFE34F3B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 		F4C0A5653C2926FE55256147 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				0B0296220FBEC8CE51A6BEFD /* IncomingAction.swift */,
 				2F1C98DAE15C85F85E32AEF0 /* Info.plist */,
 				F46DB33BAF4AF0395F7DD968 /* PodcastNotesRemoteApp.swift */,
 				C3808A0E95B0189F0C1D0C52 /* RootView.swift */,
@@ -211,6 +214,7 @@
 			files = (
 				8F33403B3A44408C8444CFA9 /* APIClient.swift in Sources */,
 				CB8EA9C1F943A5851EA5A87C /* AppSettings.swift in Sources */,
+				F86EE1CAC57F5C9E5CFC44FB /* IncomingAction.swift in Sources */,
 				1053DC24EC5AAF7E5E6472CC /* JSONCoding.swift in Sources */,
 				5731365F9D3C50D50179552D /* Job.swift in Sources */,
 				4ECCAD04FF86D8E7BEE7158F /* JobDetailView.swift in Sources */,

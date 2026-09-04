@@ -13,18 +13,23 @@ iPhone アプリ（ios/PodcastNotesRemote）から叩かれる JSON API。
     GET  /v1/jobs/{id}
     GET  /v1/jobs/{id}/log?offset=0
     POST /v1/jobs/{id}/cancel
+
+    python3 server/app.py --setup-link   # アプリに設定を流し込む URL を表示
 """
 
 from __future__ import annotations
 
+import argparse
 import hmac
 import json
 import re
+import socket
+import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -223,8 +228,74 @@ class Handler(BaseHTTPRequestHandler):
         }
 
 
-def main() -> int:
+def lan_address() -> Optional[str]:
+    """同一 LAN から見える自分の IP。取れなければ None。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(0.5)
+            sock.connect(("8.8.8.8", 80))  # 実際には送信しない
+            return sock.getsockname()[0]
+    except OSError:
+        return None
+
+
+def tailscale_hostname() -> Optional[str]:
+    """Tailscale 上の自分の DNS 名。未導入なら None。"""
+    try:
+        output = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout
+        status = json.loads(output)
+        name = (status.get("Self") or {}).get("DNSName") or ""
+        return name.rstrip(".") or None
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def print_setup_links(settings: Settings) -> int:
+    """アプリに接続設定を流し込む URL を表示する。
+
+    43 文字のトークンを iPhone のキーボードで打たせないためのもの。
+    """
+    if not settings.token:
+        print("❌ config/config.yaml の remote.token が未設定です", file=sys.stderr)
+        return 1
+
+    hosts: list[tuple[str, str]] = []
+    if name := tailscale_hostname():
+        hosts.append(("外出先からも使える (Tailscale)", f"{name}:{settings.port}"))
+    if ip := lan_address():
+        hosts.append(("自宅の Wi-Fi 内のみ", f"{ip}:{settings.port}"))
+    if not hosts:
+        print("❌ 自分のアドレスを特定できませんでした", file=sys.stderr)
+        return 1
+
+    print("iPhone の Safari で開くか、メモ／メッセージ経由で自分に送って開いてください。\n")
+    for label, host in hosts:
+        link = (
+            f"podcastnotes://configure"
+            f"?server={quote(host, safe='')}&token={quote(settings.token, safe='')}"
+        )
+        print(f"■ {label}")
+        print(f"  {link}\n")
+    print("※ このリンクにはトークンが入っています。他人に共有しないでください。")
+    return 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Podcast Notes remote job server")
+    parser.add_argument(
+        "--setup-link",
+        action="store_true",
+        help="iPhone アプリに接続設定を流し込む URL を表示して終了する",
+    )
+    args = parser.parse_args(argv)
+
     settings = Settings()
+
+    if args.setup_link:
+        return print_setup_links(settings)
 
     if not settings.project_dir.exists():
         print(f"❌ プロジェクトディレクトリがありません: {settings.project_dir}", file=sys.stderr)
