@@ -540,6 +540,57 @@ class NotionClient:
         
         return True
     
+    def append_blocks(self, page_id: str, blocks: list) -> bool:
+        """Append raw Notion blocks to an existing page."""
+        return self._append_blocks_to_page(page_id, blocks)
+
+    def append_callout(
+        self,
+        page_id: str,
+        title: str,
+        lines: list,
+        emoji: str = "📝",
+        color: str = "yellow_background",
+    ) -> bool:
+        """Append a single callout whose body is one paragraph per line.
+
+        Used for advisory notes that must not disturb the page template —
+        verification findings, correction tables — so they sit at the end of the
+        page rather than being interleaved with the generated sections.
+
+        Each entry in `lines` is either a string (one paragraph) or a
+        (text, indent) tuple where indent=True renders it as a nested bullet.
+        """
+        if not lines:
+            return True
+
+        children = []
+        for line in lines:
+            text, indent = (line, False) if isinstance(line, str) else line
+            for chunk in self._split_text_into_chunks(str(text)):
+                block_type = "bulleted_list_item" if indent else "paragraph"
+                children.append({
+                    "object": "block",
+                    "type": block_type,
+                    block_type: {"rich_text": [{"type": "text", "text": {"content": chunk}}]},
+                })
+
+        callout = {
+            "object": "block",
+            "type": "callout",
+            "callout": {
+                "rich_text": [{
+                    "type": "text",
+                    "text": {"content": title},
+                    "annotations": {"bold": True},
+                }],
+                "icon": {"type": "emoji", "emoji": emoji},
+                "color": color,
+                "children": children[:100],  # Notion caps children per request
+            },
+        }
+        return self._append_blocks_to_page(page_id, [callout])
+
     def create_page(
         self,
         title: str,

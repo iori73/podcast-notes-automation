@@ -42,16 +42,28 @@ spotify:
   client_secret: 'your_spotify_client_secret'
 listen_notes:
   api_key: 'your_listen_notes_api_key'
+gemini:
+  api_key: 'your_gemini_api_key'
 notion:
   api_key: 'your_notion_api_key'
   database_id: 'your_notion_database_id'
+# Optional: default LLM for Summary / Key Takeaways / Chapters
+llm:
+  backend: gemini   # or lmstudio
+lmstudio:
+  base_url: 'http://localhost:1234/v1'
+  model: 'google/gemma-4-e4b'
 ```
 
 ### 3. 処理実行
 
 ```bash
-# 統合スクリプト（推奨）
+# 統合スクリプト（推奨）— 要約はデフォルトで Gemini
 python process_unified.py "https://open.spotify.com/episode/xxx"
+
+# ローカル LM Studio（OpenAI互換）に切り替え。Notion前に人力チェックするなら --no-notion
+python process_unified.py "https://open.spotify.com/episode/xxx" --llm-backend lmstudio --no-notion
+# LM Studio は context-length を十分に（例: 16384）。デフォルト4096だと長いチャンクで空応答になる。
 
 # Spotify HTMLから処理
 python process_spotify_transcript.py transcript.html "https://open.spotify.com/episode/xxx"
@@ -338,7 +350,24 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 
 ---
 
-**作成**: 2024 年 12 月 | **更新**: 2026 年 1 月 | **バージョン**: 3.1.0
+**作成**: 2024 年 12 月 | **更新**: 2026 年 5 月 | **バージョン**: 3.1.1
+
+### v3.1.2 変更点 (2026-05-06)
+- 📝 **教訓記録**: ep #382 で日本語音声が英語として文字起こしされた事故を反省として記録。
+- **原因**: Spotify APIが返すエピソードの `language` メタデータ（配信者が手動設定）が `en` で誤登録されていた。`process_unified.py` はこれを盲信して Whisper に `language="en"` で渡してしまった。
+- **なぜ深刻か**: Whisperの `language` 引数は **ヒントではなく強制指定**。間違った言語コードを渡すと、auto-detectは行われず、音を強制的にその言語の単語に当てはめる挙動になり、読めない英訳もどきが生成される（自動検出ミスではない）。
+- **対策**:
+  - `process_unified.py` 起動時に言語ソース（CLI / Spotifyメタ）を明示ログ出力し、メタ由来の場合は誤タグ可能性を警告。
+  - `src/spotify.py` の `language` 取得箇所にコメントで誤登録リスクを明記。
+  - 文字起こし結果がおかしい時は `--language ja|en` で明示再実行する運用に。
+- **今後の改善余地**: Whisperにあえて `language=None` を渡して auto-detect させる選択肢、または説明文の文字種からヒューリスティック検証を入れる。
+
+### v3.1.1 変更点 (2026-05-03)
+- 🐛 **Critical bugfix**: `google-genai` パッケージ未インストール時、Gemini呼び出しが全失敗 → Summary/Key Takeaways/Timestamps が無音でプレースホルダーや生の文字起こし片に置換されていた。
+- 📦 ルートに `requirements.txt` を新設し `google-genai` を必須依存として明記。
+- 🚨 `process_unified.py` の `_init_gemini` を改修。Gemini が未初期化の場合は明示的な警告を表示する（無音で続行しない）。
+- ✅ 影響: Jenny Wenエピソード以降の9件は再処理が必要（旧ページはアーカイブ）。
+- **教訓**: LLM呼び出しを「あったら使う」式の optional にすると失敗が無音化する。必須依存はrequirements.txtにピン留めし、初期化失敗は冒頭で警告を出すべし。
 
 ### v3.1.0 変更点 (2026-01-05)
 - 🍎 **iTunes/RSSフォールバック**: Listen Notes失敗時に自動でApple Podcast経由で音声取得

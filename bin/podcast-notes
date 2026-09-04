@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# One-shot podcast note generator.
+# Usage: podcast-notes "<spotify_episode_url>" [extra process_unified.py options]
+set -euo pipefail
+
+# このスクリプトが置かれているリポジトリを使う（移動しても壊れない）
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="$PROJECT_DIR/venv/bin/python"
+
+if [ $# -lt 1 ]; then
+  echo "Usage: podcast-notes <spotify_episode_url> [--language ja|en] [--no-notion] ..." >&2
+  exit 1
+fi
+
+cd "$PROJECT_DIR"
+exec "$PYTHON" process_unified.py "$@"

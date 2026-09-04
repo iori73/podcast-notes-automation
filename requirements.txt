@@ -1,0 +1,27 @@
+# Podcast Notes Automation - Top-level dependencies
+# Install: pip install -r requirements.txt
+
+# Core
+pyyaml>=6.0
+requests>=2.31.0
+
+# Spotify
+spotipy>=2.23.0
+
+# Audio metadata
+mutagen>=1.47.0
+
+# Gemini (Summary / Key Takeaways / Timestamps generation)
+# CRITICAL: process_unified.py silently falls back to placeholders without this.
+# If Gemini is uninitialized, Summary/Key Takeaways/Timestamps will not be
+# generated, and the Notion page will be missing those sections (see bug
+# fixed on 2026-05-03). Keep this pinned.
+google-genai>=1.0.0
+
+# Whisper (local speech-to-text)
+openai-whisper>=20231117
+
+# Optional: HTML fallback (Spotify "聴きながら読む")
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+beautifulsoup4>=4.12.0
