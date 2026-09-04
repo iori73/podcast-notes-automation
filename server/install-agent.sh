@@ -15,14 +15,37 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 PROJECT_DIR="${PODCAST_NOTES_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PYTHON="/usr/bin/python3"
 
+DOMAIN="gui/$(id -u)"
+
+is_loaded() {
+  # `launchctl list | grep -q` は使わない。grep -q が一致時に即終了して
+  # launchctl が SIGPIPE で落ち、pipefail がそれを失敗と見なしてしまう。
+  launchctl print "$DOMAIN/$LABEL" > /dev/null 2>&1
+}
+
 stop_agent() {
-  if launchctl list 2>/dev/null | grep -q "$LABEL"; then
-    launchctl unload "$PLIST" 2>/dev/null || true
-    echo "既存のエージェントを停止しました"
+  if ! is_loaded; then
+    return 0
   fi
+  # bootout が本筋。古い macOS 向けに unload も試す。
+  launchctl bootout "$DOMAIN/$LABEL" > /dev/null 2>&1 \
+    || launchctl unload "$PLIST" > /dev/null 2>&1 \
+    || true
+  for _ in 1 2 3 4 5; do
+    is_loaded || break
+    sleep 1
+  done
+  if is_loaded; then
+    echo "❌ 既存のエージェントを停止できませんでした。" >&2
+    echo "   手動で: launchctl bootout $DOMAIN/$LABEL" >&2
+    exit 1
+  fi
+  echo "既存のエージェントを停止しました"
 }
 
 if [ "${1:-}" = "--uninstall" ]; then
+  # 先に停止する。plist を消してから停止しようとすると、
+  # unload の対象ファイルが無くなりジョブが登録されたまま孤立する。
   stop_agent
   rm -f "$PLIST"
   echo "✅ 解除しました"
@@ -101,7 +124,8 @@ cat > "$PLIST" <<PLIST_EOF
 </plist>
 PLIST_EOF
 
-launchctl load "$PLIST"
+# bootstrap が本筋。古い macOS 向けに load も試す。
+launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || launchctl load "$PLIST"
 
 # --- 起動確認 -------------------------------------------------------------
 
