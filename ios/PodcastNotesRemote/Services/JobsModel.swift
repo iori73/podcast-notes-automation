@@ -39,6 +39,11 @@ final class JobsModel {
     func startPolling() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            // 起動直後の最初の 1 回は、UI が最初のフレームを描き切ってタッチを
+            // 受け付けられる状態になってから通信を始める。ここで即座に通信すると、
+            // サーバが応答しない環境（Mac スリープ／別ネットワーク等）では
+            // ローカルネットワークアクセスの許可処理と重なって画面が固まって見える。
+            try? await Task.sleep(for: .milliseconds(300))
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh()

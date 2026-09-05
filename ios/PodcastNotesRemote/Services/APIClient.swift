@@ -31,8 +31,10 @@ struct APIClient {
     init(settings: AppSettings = .shared) {
         self.settings = settings
         let configuration = URLSessionConfiguration.default
-        // Whisper の実行を待つのはポーリング側なので、1 リクエストは短めに切る
-        configuration.timeoutIntervalForRequest = 20
+        // Whisper の実行を待つのはポーリング側なので、1 リクエストは短めに切る。
+        // サーバが単に応答しない（Mac がスリープ／別ネットワーク／Tailscale 未接続）場合、
+        // ここが長いと起動直後の最初のポーリングがそのまま UI の体感フリーズになる。
+        configuration.timeoutIntervalForRequest = 8
         configuration.waitsForConnectivity = false
         self.session = URLSession(configuration: configuration)
     }
