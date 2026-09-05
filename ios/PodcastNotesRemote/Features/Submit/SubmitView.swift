@@ -16,6 +16,11 @@ struct SubmitView: View {
     @State private var isSubmitting = false
     @State private var submittedJob: Job?
     @State private var errorMessage: String?
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case url, prompt
+    }
 
     private var trimmedURL: String {
         spotifyURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,6 +54,9 @@ struct SubmitView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .lineLimit(1...3)
+                        .focused($focusedField, equals: .url)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .prompt }
                         .overlay(alignment: .topLeading) {
                             if trimmedURL.isEmpty {
                                 Text("https://open.spotify.com/episode/…")
@@ -72,6 +80,7 @@ struct SubmitView: View {
                 Section {
                     TextField("", text: $prompt, axis: .vertical)
                         .lineLimit(3...10)
+                        .focused($focusedField, equals: .prompt)
                         .overlay(alignment: .topLeading) {
                             if trimmedPrompt.isEmpty {
                                 Text("例: この回で話されているすべての文様や家紋について、ビジュアルのリファレンス画像を Notion のページに入れて")
@@ -109,6 +118,15 @@ struct SubmitView: View {
             }
             .navigationTitle("Podcast Notes")
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
+            // axis: .vertical の TextField は Return がそのまま改行に使われ、
+            // キーボードを閉じる手段が無くなる（onSubmit も呼ばれない）。
+            // キーボード上に明示的な「閉じる」ボタンを出す。
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("閉じる") { focusedField = nil }
+                }
+            }
             .alert("送信できませんでした", isPresented: errorBinding) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: {
