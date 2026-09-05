@@ -40,7 +40,8 @@ struct JobListView: View {
             .refreshable { await jobs.refresh() }
             .task {
                 guard settings.isConfigured else { return }
-                await jobs.refresh()
+                // startPolling() 自体が開始直後に refresh() するので、ここで先に
+                // await jobs.refresh() すると起動直後に同じ通信が二重に飛ぶ。
                 jobs.startPolling()
             }
         }
