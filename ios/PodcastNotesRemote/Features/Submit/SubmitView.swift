@@ -41,11 +41,21 @@ struct SubmitView: View {
                 }
 
                 Section {
-                    TextField("https://open.spotify.com/episode/…", text: $spotifyURL, axis: .vertical)
+                    // TextField(..., axis: .vertical) はプレースホルダーが secondary では
+                    // なく本文と同じ色で描画されるため、未入力でも入力済みに見えてしまう。
+                    // プレースホルダーは自前でオーバーレイして薄い色を強制する。
+                    TextField("", text: $spotifyURL, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .lineLimit(1...3)
+                        .overlay(alignment: .topLeading) {
+                            if trimmedURL.isEmpty {
+                                Text("https://open.spotify.com/episode/…")
+                                    .foregroundStyle(.secondary)
+                                    .allowsHitTesting(false)
+                            }
+                        }
 
                     // PasteButton はタップ起点なので、貼り付け許可のバナーが出ない
                     PasteButton(payloadType: String.self) { strings in
@@ -60,12 +70,15 @@ struct SubmitView: View {
                 }
 
                 Section {
-                    TextField(
-                        "例: この回で話されているすべての文様や家紋について、ビジュアルのリファレンス画像を Notion のページに入れて",
-                        text: $prompt,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...10)
+                    TextField("", text: $prompt, axis: .vertical)
+                        .lineLimit(3...10)
+                        .overlay(alignment: .topLeading) {
+                            if trimmedPrompt.isEmpty {
+                                Text("例: この回で話されているすべての文様や家紋について、ビジュアルのリファレンス画像を Notion のページに入れて")
+                                    .foregroundStyle(.secondary)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                 } header: {
                     Text("追加の依頼（任意）")
                 } footer: {
