@@ -26,11 +26,17 @@ Examples:
     
     # Skip Notion upload
     python process_unified.py "https://open.spotify.com/episode/xxx" --no-notion
+
+    # Use local LM Studio instead of Gemini (OpenAI-compatible localhost:1234)
+    python process_unified.py "https://open.spotify.com/episode/xxx" --llm-backend lmstudio --no-notion
 """
 
 import argparse
+import json
 import sys
 import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 from typing import List, Tuple, Optional
@@ -45,17 +51,35 @@ from listen_notes import ListenNotesClient
 from notion_client import NotionClient
 from integrations.itunes_rss import iTunesRSSClient
 from utils import load_config
+from verification import TranscriptVerifier
+from philosophy import load_philosophy
+
+# Label split must tolerate optional markdown bold around the heading and
+# either "**Key Takeaways:**" or "**Key Takeaways**:" (LM Studio does both;
+# Gemini usually emits the plain form). Same pattern for Summary.
+_KEY_TAKEAWAYS_SPLIT = re.compile(
+    r'(?:\*\*|__)?\s*Key Takeaways\s*(?:\*\*|__)?\s*[:：]\s*(?:\*\*|__)?\s*\n',
+)
+_SUMMARY_LABEL = re.compile(
+    r'(?:\*\*|__)?\s*Summary\s*(?:\*\*|__)?\s*[:：]\s*(?:\*\*|__)?\s*\n?',
+)
 
 
 class UnifiedProcessor:
     """Unified podcast processing with multiple fallback options."""
     
-    def __init__(self):
+    def __init__(self, llm_backend: Optional[str] = None):
         self.spotify_client = SpotifyClient()
         self.listen_notes_client = ListenNotesClient()
         self.notion_client = NotionClient()
         self.itunes_client = iTunesRSSClient()
-        self._init_gemini()
+
+        self.gemini_client = None
+        self.gemini_model_name = None
+        self.lmstudio_base_url = "http://localhost:1234/v1"
+        self.lmstudio_model = "google/gemma-4-e4b"
+        self.llm_backend = self._resolve_llm_backend(llm_backend)
+        self._init_llm()
         
         self.episode_info = None
         self.transcript = None
@@ -65,15 +89,69 @@ class UnifiedProcessor:
         self.chapters = None
         self.category = None
         self.source = None  # 'whisper', 'spotify_html', 'itunes_rss', or 'manual'
+        self.verification = None  # VerificationReport, set by STEP 3.5
+        self.editor_note = None  # Model's stated reasoning, logged not published
+
+    @staticmethod
+    def _resolve_llm_backend(cli_backend: Optional[str]) -> str:
+        """CLI overrides config; default remains gemini for safe parallel rollout."""
+        if cli_backend:
+            return cli_backend
+        try:
+            config = load_config()
+            configured = ((config.get("llm") or {}).get("backend") or "").strip().lower()
+            if configured in ("gemini", "lmstudio"):
+                return configured
+        except Exception:
+            pass
+        return "gemini"
+
+    def _init_llm(self) -> None:
+        if self.llm_backend == "lmstudio":
+            self._init_lmstudio()
+        else:
+            self._init_gemini()
+
+    def _llm_available(self) -> bool:
+        if self.llm_backend == "lmstudio":
+            return bool(self.lmstudio_model and self.lmstudio_base_url)
+        return bool(self.gemini_client and self.gemini_model_name)
+
+    def _llm_model_label(self) -> Optional[str]:
+        if self.llm_backend == "lmstudio":
+            return self.lmstudio_model
+        return self.gemini_model_name
+
+    def _init_lmstudio(self) -> None:
+        """Initialize LM Studio OpenAI-compatible endpoint from config."""
+        try:
+            config = load_config()
+            lm = config.get("lmstudio") or {}
+            self.lmstudio_base_url = (lm.get("base_url") or self.lmstudio_base_url).rstrip("/")
+            self.lmstudio_model = lm.get("model") or self.lmstudio_model
+        except Exception as e:
+            print(f"⚠️  WARNING: Could not read lmstudio config ({e}); using defaults.")
+
+        probe = self._lmstudio_generate("Reply with exactly: OK", temperature=0.0, max_tokens=16)
+        if probe is None:
+            print("⚠️  WARNING: LM Studio not reachable — Summary/Key Takeaways/Timestamps will be PLACEHOLDERS only.")
+            print(f"   Expected OpenAI-compatible API at {self.lmstudio_base_url}/chat/completions")
+            print("   Tip: load the model with enough context, e.g.")
+            print(f"        lms load {self.lmstudio_model} --context-length 16384")
+            print("   Default context (4096) returns empty HTTP 200 responses for 8k-char chunks.")
+            self.lmstudio_model = None
+            return
+        print(f"✅ LM Studio initialized: {self.lmstudio_model} @ {self.lmstudio_base_url}")
 
     def _init_gemini(self):
         """Initialize Gemini client if configured.
 
         NOTE: Gemini is REQUIRED for Summary / Key Takeaways / Timestamps
-        generation. If it fails to initialize, the script silently falls back
-        to placeholder text, producing broken Notion pages. We loudly warn
-        here so the failure is visible. (Bug fixed 2026-05-03: missing
-        google-genai package caused silent placeholder output.)
+        generation when --llm-backend gemini (default). If it fails to
+        initialize, the script falls back to placeholder text, producing
+        broken Notion pages. We loudly warn here so the failure is visible.
+        (Bug fixed 2026-05-03: missing google-genai package caused silent
+        placeholder output.)
         """
         self.gemini_client = None
         self.gemini_model_name = None
@@ -110,7 +188,56 @@ class UnifiedProcessor:
 
     _gemini_call_times: List[float] = []  # class-level shared rate-limit window (set on UnifiedProcessor)
 
-    def _gemini_generate(self, prompt: str) -> Optional[str]:
+    def _llm_generate(self, prompt: str, temperature: float = 0.7) -> Optional[str]:
+        """Dispatch to the active LLM backend."""
+        if self.llm_backend == "lmstudio":
+            return self._lmstudio_generate(prompt, temperature=temperature)
+        return self._gemini_generate(prompt, temperature=temperature)
+
+    def _lmstudio_generate(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> Optional[str]:
+        """Generate text via LM Studio's OpenAI-compatible chat completions API."""
+        if not self.lmstudio_base_url or not self.lmstudio_model:
+            return None
+
+        url = f"{self.lmstudio_base_url}/chat/completions"
+        payload = {
+            "model": self.lmstudio_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            choices = data.get("choices") or []
+            if not choices:
+                print("⚠️ LM Studio returned no choices (empty response — check context-length)")
+                return None
+            content = (choices[0].get("message") or {}).get("content")
+            if content is None or not str(content).strip():
+                print("⚠️ LM Studio returned empty content (HTTP 200). "
+                      "Often means the model context length is too small for the prompt.")
+                return None
+            return str(content).strip()
+        except urllib.error.URLError as e:
+            print(f"⚠️ LM Studio connection error: {e}")
+            return None
+        except Exception as e:
+            print(f"⚠️ LM Studio error: {e}")
+            return None
+
+    def _gemini_generate(self, prompt: str, temperature: float = 0.7) -> Optional[str]:
         """Generate text via Gemini with retry + rate limiting.
 
         Free tier limit is 5 RPM for gemini-2.5-flash. We enforce a soft
@@ -134,6 +261,7 @@ class UnifiedProcessor:
         from google.genai import types as _genai_types
         gen_config = _genai_types.GenerateContentConfig(
             max_output_tokens=4096,
+            temperature=temperature,
             thinking_config=_genai_types.ThinkingConfig(thinking_budget=0),
         )
 
@@ -249,24 +377,54 @@ class UnifiedProcessor:
             picked.append(items[-1])
         return picked[:max_items]
 
+    @staticmethod
+    def _split_takeaways_and_note(text: str) -> Tuple[str, Optional[str]]:
+        """Separate Key Takeaways from the trailing 編集メモ block.
+
+        Gemini varies the label's decoration run to run — markdown bold, a leading
+        bullet, a fullwidth colon, or no colon at all — so the pattern is
+        deliberately permissive. The memo is optional: when the label is absent the
+        whole block is Key Takeaways, which must never be lost.
+        """
+        pattern = r'\n[ \t]*(?:[-*・#>]+[ \t]*)?(?:\*\*|__)?\s*編集メモ\s*(?:\*\*|__)?\s*[:：]?[ \t]*\n?'
+        parts = re.split(pattern, text, maxsplit=1)
+        if len(parts) == 2:
+            # Label present but body empty: still strip the label off the takeaways.
+            return parts[0].strip(), parts[1].strip() or None
+        return text.strip(), None
+
     def _generate_summary_and_timestamps(self, language: str):
-        """Generate summary and timestamps (chapter titles) from transcript via Gemini."""
-        self.gemini_ok = True  # set False on any failure below
-        if not self.gemini_client:
+        """Generate summary and timestamps (chapter titles) from the active LLM."""
+        self.llm_ok = True  # set False on any failure below
+        if not self._llm_available():
             self.chapters = self._generate_chapter_placeholders()
             self.summary = self._generate_summary_placeholder()
-            self.gemini_ok = False
+            self.llm_ok = False
             return
 
         lang = "日本語" if language == "ja" else "English"
         title = (self.episode_info or {}).get("title", "")
         show = (self.episode_info or {}).get("show_name", "")
+        print(f"   🧠 LLM backend: {self.llm_backend} ({self._llm_model_label()})")
+
+        # The rules below say what not to do; the philosophy says what a good note
+        # is FOR. Without it the output satisfies every constraint and still reads
+        # like a neutral abstract. Edited in config/philosophy.md, not here.
+        philosophy = load_philosophy(show)
+        philosophy_block = f"""
+【編集方針（この思想のもとで書く）】
+{philosophy}
+""".rstrip() if philosophy else ""
+        if philosophy:
+            print(f"   📐 編集方針を読み込みました（{len(philosophy)}文字）")
 
         # --- Summary (map-reduce style) ---
+        # Previously capped at 6 chunks (start/mid/end sample) to save Gemini
+        # free-tier quota. That silently dropped mid-episode content on long
+        # transcripts (~48k+ chars) — including rare proper nouns. Feed every
+        # chunk; long episodes cost more Gemini calls, which is the correct tradeoff.
         chunks = self._split_text(self.transcript or "", max_chars=8000)
-        if len(chunks) > 6:
-            mid = len(chunks) // 2
-            chunks = chunks[:2] + chunks[mid:mid+2] + chunks[-2:]
+        print(f"   📦 Summary chunks: {len(chunks)} (no mid-episode sampling)")
 
         chunk_summaries = []
         for idx, chunk in enumerate(chunks, start=1):
@@ -287,13 +445,16 @@ class UnifiedProcessor:
 出力:
 - ...
 """.strip()
-            out = self._gemini_generate(prompt)
+            out = self._llm_generate(prompt)
             if out:
                 chunk_summaries.append(out)
+            else:
+                print(f"   ⚠️ Chunk {idx}/{len(chunks)} summary failed")
 
         final_prompt = f"""
 あなたは優秀な編集者です。以下はポッドキャストの要点メモ（複数断片のまとめ）です。
 これを元に、{lang}で「Summary」と「Key Takeaways」を作成してください。
+{philosophy_block}
 
 【Summaryの条件】
 - 250〜450文字程度（英語の場合は600〜900 characters程度）
@@ -304,12 +465,17 @@ class UnifiedProcessor:
 - 「このエピソードでは〜について話されています」という書き方は禁止
 - 具体的に何が語られたか、どんな主張・知見・事例・データが紹介されたかを書く
 - 内容の推測はせず、与えられた情報の範囲で
+- 文字数を超えそうなときは、具体（数字・固有名詞・事例）を削るのではなく扱う話題を絞る
+- LaTeX記法や数式記号（$\rightarrow$ など）は使わない。矢印は→、その他の記号も普通の文章として書く
+- 要点メモの中に固有名詞（フレームワーク名・製品名・造語）が一度でも出てきたら、それが全体の中で目立たなくても、必ずどこかに残す。頻出テーマだけを拾って一度しか出ない具体名を切り捨てるのは禁止
 
 【Key Takeawaysの条件】
 - 箇条書きで3〜5点
 - このエピソード固有の学び・気づき・主張を書く
 - 「〜について学べます」などの抽象的な表現は禁止
 - 具体的な数字・事例・人名・概念名を含める
+- LaTeX記法や数式記号は使わない
+- 要点メモに登場した固有名詞（フレームワーク名・製品名など）は一度でも出てきたら最低1点はそれに触れる項目を作る
 
 番組: {show}
 回: {title}
@@ -323,30 +489,43 @@ Summary:
 
 Key Takeaways:
 - ...
+
+編集メモ:
+核となる問い: （このエピソードが本当は何を巡って話しているか。1行）
+取捨の理由: （何を中心に据え、何を落としたか。1〜2行）
 """.strip()
-        final = self._gemini_generate(final_prompt)
+        # temperature 0.3: reduces Gemma LaTeX leakage; also steadies rare proper-noun retention
+        final = self._llm_generate(final_prompt, temperature=0.3)
         if final:
-            # SummaryとKey Takeawaysを分割
-            parts = re.split(r'Key Takeaways:\s*\n', final, maxsplit=1)
+            parts = _KEY_TAKEAWAYS_SPLIT.split(final, maxsplit=1)
             if len(parts) == 2:
                 summary_part = parts[0]
-                # Geminiが時々前置き（"承知いたしました…"等）を付けたうえで
-                # "Summary:" ラベルを出す。ラベルがあればそれ以降を本文として採用し、
-                # ラベルより前の前置きごと除去する（^アンカーだと前置きがあると剥がせない）。
-                m = re.search(r'Summary\s*[:：]\s*\n?', summary_part)
+                # Models sometimes prepend filler before "Summary:". Prefer text
+                # after the label so preamble is stripped (no ^ anchor).
+                m = _SUMMARY_LABEL.search(summary_part)
                 if m:
                     summary_part = summary_part[m.end():]
                 self.summary = summary_part.strip()
-                self.key_takeaways = parts[1].strip()
+
+                # 編集メモ is the model's own account of what it treated as the
+                # central question and what it dropped. It is deliberately NOT
+                # published to Notion — raw material for revising
+                # config/philosophy.md, so split it off before Key Takeaways
+                # are used anywhere.
+                takeaways, note = self._split_takeaways_and_note(parts[1])
+                self.key_takeaways = takeaways
+                self.editor_note = note
+                if not note:
+                    print("   ℹ️  編集メモが取得できませんでした（要約自体には影響しません）")
             else:
                 # フォールバック: 分割できなかった場合は全体をsummaryに
                 self.summary = final.strip()
                 self.key_takeaways = None
-                self.gemini_ok = False
+                self.llm_ok = False
         else:
             self.summary = self._generate_summary_placeholder()
             self.key_takeaways = None
-            self.gemini_ok = False
+            self.llm_ok = False
 
         # --- Timestamps / Chapters ---
         chapter_items = self._build_chapter_context(interval_sec=300, max_items=14)
@@ -371,7 +550,7 @@ Key Takeaways:
 
 出力:
 """.strip()
-        chapters = self._gemini_generate(chapter_prompt)
+        chapters = self._llm_generate(chapter_prompt)
         if chapters:
             self.chapters = chapters.strip()
         else:
@@ -384,8 +563,8 @@ Key Takeaways:
     ]
 
     def _classify_category(self, language: str) -> str:
-        """Classify episode into a category using Gemini."""
-        if not self.gemini_client:
+        """Classify episode into a category using the active LLM."""
+        if not self._llm_available():
             return "Others"
 
         title = (self.episode_info or {}).get("title", "")
@@ -401,9 +580,11 @@ Title: {title}
 Podcast: {show}
 Content: {transcript_head}"""
 
-        result = self._gemini_generate(prompt)
+        result = self._llm_generate(prompt)
         if result:
             category = result.strip().strip('"').strip("'")
+            # Strip optional markdown decoration some local models add
+            category = re.sub(r'^\*+|\*+$', '', category).strip()
             if category in self.VALID_CATEGORIES:
                 return category
             # 部分一致で探す
@@ -419,7 +600,8 @@ Content: {transcript_head}"""
         html_file: str = None,
         audio_file: str = None,
         no_notion: bool = False,
-        whisper_model: str = "medium"
+        whisper_model: str = "medium",
+        no_verify: bool = False
     ) -> dict:
         """
         Main processing entry point.
@@ -527,6 +709,19 @@ Content: {transcript_head}"""
         self.category = self._classify_category(effective_language)
         print(f"   Category: {self.category}")
 
+        # Step 3.5: Verify what we just generated.
+        # Everything above is generation; nothing until now checks itself. Whisper
+        # misrecognitions and Gemini preamble leakage were previously caught only by
+        # a human reading the finished Notion page. This grounds the output against
+        # the show's own published notes before anyone reads it.
+        if not no_verify:
+            print("\n" + "=" * 60)
+            print("STEP 3.5: Verification")
+            print("=" * 60)
+            self._verify_output()
+
+        self._log_generation(effective_language)
+
         # Step 4: Save Output
         print("\n" + "=" * 60)
         print("STEP 4: Saving Output")
@@ -537,10 +732,11 @@ Content: {transcript_head}"""
         
         # Step 5: Upload to Notion
         if not no_notion:
-            if not getattr(self, "gemini_ok", True):
-                print("\n❌ ABORTING Notion upload: Gemini failed to generate Summary/Key Takeaways/Timestamps.")
-                print("   The output would be a broken page. Re-run after Gemini quota resets.")
-                return {"success": False, "error": "gemini_failed", "output_path": str(output_path)}
+            if not getattr(self, "llm_ok", True):
+                backend = self.llm_backend
+                print(f"\n❌ ABORTING Notion upload: {backend} failed to generate Summary/Key Takeaways/Timestamps.")
+                print("   The output would be a broken page. Fix the LLM backend (or wait for Gemini quota) and re-run.")
+                return {"success": False, "error": "llm_failed", "output_path": str(output_path)}
 
             print("\n" + "=" * 60)
             print("STEP 5: Uploading to Notion")
@@ -965,6 +1161,106 @@ Content: {transcript_head}"""
             formatted.append(self._break_long_line(part, 120))
         return "\n\n".join(formatted)
     
+    def _log_generation(self, language: str) -> None:
+        """Append one line per episode to data/prompt_log.jsonl.
+
+        Records what the philosophy file said at generation time, what Gemini
+        claimed its editorial reasoning was, and what verification found. Without
+        this the tuning of config/philosophy.md is unrepeatable guesswork: there is
+        no way to ask later whether a wording change actually improved anything.
+        """
+        try:
+            import hashlib
+            show = (self.episode_info or {}).get("show_name", "")
+            philosophy = load_philosophy(show)
+            rep = self.verification
+
+            entry = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "show": show,
+                "title": (self.episode_info or {}).get("title", ""),
+                "language": language,
+                "llm_backend": self.llm_backend,
+                "llm_model": self._llm_model_label(),
+                "gemini_model": self.gemini_model_name,  # kept for older log consumers
+                "philosophy_chars": len(philosophy),
+                "philosophy_sha1": hashlib.sha1(philosophy.encode()).hexdigest()[:12] if philosophy else None,
+                "summary_chars": len(self.summary or ""),
+                "editor_note": self.editor_note,
+                "verification": {
+                    "misrecognitions": len(rep.misrecognitions) if rep else None,
+                    "unconfirmed": len(rep.by_kind("unconfirmed")) if rep else None,
+                    "quality_issues": rep.quality_issues if rep else None,
+                    "uncovered_topics": rep.uncovered_topics if rep else None,
+                } if rep else None,
+            }
+
+            log_path = Path("data") / "prompt_log.jsonl"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            print(f"   🗒️  生成ログを記録: {log_path}")
+        except Exception as e:
+            # Logging is bookkeeping; never let it fail a completed episode.
+            print(f"   ⚠️ 生成ログの記録に失敗: {e}")
+
+    def _verify_output(self) -> None:
+        """Ground the generated notes against the show's own published notes.
+
+        Never mutates the transcript or summary. Show notes are human-written and
+        carry their own typos, so findings are advisory: they are reported to the
+        console, saved next to the output, and appended to Notion as a callout for
+        a person to confirm.
+        """
+        try:
+            verifier = TranscriptVerifier(gemini_generate=self._llm_generate)
+            self.verification = verifier.verify(
+                show_name=self.episode_info.get("show_name", ""),
+                episode_title=self.episode_info.get("title", ""),
+                transcript=self.transcript or "",
+                summary=self.summary,
+                key_takeaways=self.key_takeaways,
+                chapters=self.chapters,
+            )
+            self.verification.print_summary()
+        except Exception as e:
+            # Verification is a safety net, never a gate: a failure here must not
+            # cost the user a completed transcription.
+            print(f"   ⚠️ Verification skipped due to error: {e}")
+            self.verification = None
+
+    def _verification_notion_lines(self) -> list:
+        """Flatten the report into callout body lines for Notion."""
+        rep = self.verification
+        if not rep:
+            return []
+
+        lines = []
+        real = rep.misrecognitions
+        if real:
+            lines.append("Whisper が聞き間違えた固有名詞です。公式ショーノートと突き合わせて自動検出しました。")
+            for c in real:
+                lines.append((f"{c.as_line()}（確度: {c.confidence}）", True))
+                if c.context:
+                    lines.append((f"文脈: {c.context}", True))
+
+        unconfirmed = rep.by_kind("unconfirmed")
+        if unconfirmed:
+            lines.append("公式ノートにあるが転写内に見つからなかった語（要目視）:")
+            lines += [(c.official, True) for c in unconfirmed]
+
+        if rep.quality_issues:
+            lines.append("生成物の品質チェックで見つかった問題:")
+            lines += [(i, True) for i in rep.quality_issues]
+
+        if rep.uncovered_topics:
+            lines.append("公式ショーノートにあるが要約が触れていないトピック:")
+            lines += [(t, True) for t in rep.uncovered_topics]
+
+        if lines and rep.notes_source:
+            lines.append(f"照合元: {rep.notes_source}")
+        return lines
+
     def _save_output(self, spotify_url: str) -> Path:
         """Save the processed content to markdown file."""
         title = self.episode_info.get('title', 'Unknown')
@@ -1000,7 +1296,14 @@ Content: {transcript_head}"""
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        
+
+        # Kept out of episode_summary.md on purpose: that file is uploaded verbatim
+        # to Notion and must stay the clean template.
+        if self.verification and self.verification.has_findings:
+            (output_dir / 'verification.md').write_text(
+                self.verification.as_markdown(), encoding='utf-8'
+            )
+
         return output_path
     
     def _upload_to_notion(self, spotify_url: str, output_path: Path) -> bool:
@@ -1022,9 +1325,21 @@ Content: {transcript_head}"""
                 duration_minutes=duration_minutes,
                 category=self.category
             )
-            
+
+            if page_id and self.verification and self.verification.has_findings:
+                lines = self._verification_notion_lines()
+                if lines:
+                    self.notion_client.append_callout(
+                        page_id=page_id,
+                        title="自動検証の結果（公式ショーノートとの照合）",
+                        lines=lines,
+                        emoji="📝",
+                        color="yellow_background",
+                    )
+                    print("   ✅ 検証結果をページに追記しました")
+
             return page_id is not None
-            
+
         except Exception as e:
             print(f"❌ Notion upload error: {e}")
             return False
@@ -1048,6 +1363,12 @@ Examples:
     
     # Skip Notion upload
     python process_unified.py "https://open.spotify.com/episode/xxx" --no-notion
+
+    # Skip verification (saves one LLM call when quota is tight)
+    python process_unified.py "https://open.spotify.com/episode/xxx" --no-verify
+
+    # Local LM Studio instead of Gemini (keep Gemini as default for parallel rollout)
+    python process_unified.py "https://open.spotify.com/episode/xxx" --llm-backend lmstudio --no-notion
         """
     )
     
@@ -1057,17 +1378,26 @@ Examples:
     parser.add_argument('--audio-file', type=str, help='Local audio file (skip Listen Notes)')
     parser.add_argument('--whisper-model', type=str, default='medium', choices=['tiny', 'base', 'small', 'medium', 'large'], help='Whisper model size')
     parser.add_argument('--no-notion', action='store_true', help='Skip Notion upload')
-    
+    parser.add_argument('--no-verify', action='store_true',
+                        help='Skip verification against the show\'s official notes (saves 1 LLM call)')
+    parser.add_argument(
+        '--llm-backend',
+        choices=['gemini', 'lmstudio'],
+        default=None,
+        help='LLM for Summary/Key Takeaways/Chapters (default: gemini, or config llm.backend)',
+    )
+
     args = parser.parse_args()
-    
-    processor = UnifiedProcessor()
+
+    processor = UnifiedProcessor(llm_backend=args.llm_backend)
     result = processor.process(
         spotify_url=args.spotify_url,
         language=args.language,
         html_file=args.html_file,
         audio_file=args.audio_file,
         no_notion=args.no_notion,
-        whisper_model=args.whisper_model
+        whisper_model=args.whisper_model,
+        no_verify=args.no_verify
     )
     
     if result.get('success'):

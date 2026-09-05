@@ -32,16 +32,16 @@ class iTunesRSSClient:
     def search_podcast(self, show_name: str, country: str = "jp") -> Optional[Dict]:
         """
         Search for a podcast by name using iTunes Search API.
-        
+
         Args:
             show_name: Name of the podcast show
             country: Country code (default: jp for Japan)
-            
+
         Returns:
             dict with podcast info including collectionId, or None if not found
         """
         print(f"🔍 iTunes Search: {show_name}")
-        
+
         try:
             params = {
                 "term": show_name,
@@ -50,35 +50,49 @@ class iTunesRSSClient:
                 "limit": 10,
                 "country": country
             }
-            
+
             response = self.session.get(self.ITUNES_SEARCH_URL, params=params, timeout=30)
             response.raise_for_status()
-            
+
             data = response.json()
             results = data.get("results", [])
-            
+
             if not results:
                 print(f"   ❌ No podcasts found for: {show_name}")
                 return None
-            
-            # Find best match by name similarity
-            best_match = None
-            best_score = 0
-            
+
+            # Step 1: strict pass - a normalized-containment match on the show name
+            # itself (not the artist/host bio, which causes coincidental false
+            # positives like "デザインの味付け" matching an unrelated host whose
+            # bio happens to contain the word "デザイン").
             for podcast in results:
                 collection_name = podcast.get("collectionName", "")
-                artist_name = podcast.get("artistName", "")
-                
-                # Calculate similarity score
+                if self._podcast_names_match(show_name, collection_name):
+                    print(f"   ✅ Found (strict match): {collection_name}")
+                    print(f"   📌 Apple Podcast ID: {podcast.get('collectionId')}")
+                    return {
+                        "podcast_id": podcast.get("collectionId"),
+                        "name": collection_name,
+                        "artist": podcast.get("artistName"),
+                        "feed_url": podcast.get("feedUrl"),
+                        "artwork_url": podcast.get("artworkUrl600"),
+                        "similarity_score": 1.0
+                    }
+
+            # Step 2: fuzzy fallback on the show name only (not artist name),
+            # with a threshold high enough to reject coincidental overlaps.
+            best_match = None
+            best_score = 0
+
+            for podcast in results:
+                collection_name = podcast.get("collectionName", "")
                 name_score = self._similarity(show_name.lower(), collection_name.lower())
-                artist_score = self._similarity(show_name.lower(), artist_name.lower())
-                score = max(name_score, artist_score)
-                
-                if score > best_score:
-                    best_score = score
+
+                if name_score > best_score:
+                    best_score = name_score
                     best_match = podcast
-            
-            if best_match and best_score >= 0.3:  # Minimum 30% similarity
+
+            if best_match and best_score >= 0.5:  # Minimum 50% similarity
                 print(f"   ✅ Found: {best_match.get('collectionName')}")
                 print(f"   📌 Apple Podcast ID: {best_match.get('collectionId')}")
                 return {
@@ -92,10 +106,41 @@ class iTunesRSSClient:
             else:
                 print(f"   ❌ No good match found (best score: {best_score:.2f})")
                 return None
-                
+
         except requests.RequestException as e:
             print(f"   ❌ iTunes Search error: {e}")
             return None
+
+    def _normalize_podcast_name(self, name: str) -> str:
+        """Normalize podcast name for comparison (remove spaces, punctuation, lowercase)."""
+        if not name:
+            return ""
+        name = name.lower()
+        name = re.sub(r'\s*(podcast|ポッドキャスト|radio|ラジオ)\s*$', '', name, flags=re.IGNORECASE)
+        name = re.sub(r'[^\w぀-ゟ゠-ヿ一-鿿]', '', name)
+        return name
+
+    def _podcast_names_match(self, expected_name: str, actual_name: str) -> bool:
+        """
+        Check if podcast names match strictly (same logic as ListenNotesClient).
+        Returns True only if names are essentially the same podcast.
+        """
+        if not expected_name or not actual_name:
+            return False
+
+        norm_expected = self._normalize_podcast_name(expected_name)
+        norm_actual = self._normalize_podcast_name(actual_name)
+
+        if norm_expected == norm_actual:
+            return True
+
+        if norm_expected in norm_actual or norm_actual in norm_expected:
+            shorter = min(norm_expected, norm_actual, key=len)
+            longer = max(norm_expected, norm_actual, key=len)
+            if len(shorter) / len(longer) >= 0.7:
+                return True
+
+        return False
     
     def get_rss_feed_url(self, podcast_id: int) -> Optional[str]:
         """

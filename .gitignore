@@ -2,11 +2,17 @@ venv/
 .venv/
 *.pyc
 __pycache__/
-config/*.yaml
+# config/ は秘密情報の置き場なので既定で除外し、安全なものだけ明示的に許可する
+config/*
+!config/philosophy.md
 downloads/
-.env/
+.env
+.env.*
+!.env.example
 ACCOUNTS.md
 .DS_Store
+*.bak
+*.bak-*
 .cache
 data/
 process_log.txt

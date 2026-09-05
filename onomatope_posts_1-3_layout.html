@@ -1,0 +1,435 @@
+<style>
+  :root{
+    --washi:#F3EEE3;      /* paper ground */
+    --washi-2:#EDE6D8;    /* card inner tint */
+    --sumi:#201D19;       /* warm ink */
+    --sumi-soft:#4A443B;
+    --ai:#25406B;         /* indigo — the "heavy/deep" pole & primary */
+    --ai-deep:#1B2F4E;
+    --sora:#8CBBD4;       /* sky — the "light" pole */
+    --sora-pale:#CFE2ED;
+    --shu:#E5623D;        /* persimmon — CTA / save accent only */
+    --line:#D9CFBD;
+    --jp:"Hiragino Maru Gothic ProN","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    --jp-sharp:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    --en:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0}
+  .wrap{
+    background:var(--washi);
+    color:var(--sumi);
+    font-family:var(--en);
+    padding:48px 28px 72px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .inner{max-width:1120px;margin:0 auto}
+
+  /* ---- page header ---- */
+  .eyebrow{
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ai);font-weight:700;margin:0 0 14px;
+  }
+  h1{
+    font-family:var(--jp-sharp);font-weight:800;
+    font-size:clamp(26px,4.4vw,40px);line-height:1.18;margin:0 0 14px;
+    letter-spacing:.01em;text-wrap:balance;
+  }
+  .lede{
+    font-size:15px;line-height:1.7;color:var(--sumi-soft);
+    max-width:60ch;margin:0 0 6px;
+  }
+  .concept{
+    display:inline-block;margin-top:18px;font-family:var(--en);
+    font-style:italic;font-size:14px;color:var(--ai);
+    border-left:3px solid var(--sora);padding-left:12px;
+  }
+
+  /* ---- design-system legend ---- */
+  .legend{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:20px 32px;margin:38px 0 8px;padding:24px;
+    background:var(--washi-2);border:1px solid var(--line);border-radius:4px;
+  }
+  .legend h3{
+    font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--sumi-soft);margin:0 0 12px;font-weight:700;
+  }
+  .swatch-row{display:flex;flex-wrap:wrap;gap:10px}
+  .swatch{display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+  .chip{width:34px;height:34px;border-radius:6px;border:1px solid rgba(0,0,0,.08)}
+  .swatch small{font-size:9.5px;color:var(--sumi-soft);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .legend p{margin:0;font-size:12.5px;line-height:1.65;color:var(--sumi-soft)}
+  .legend .k{color:var(--sumi);font-weight:700}
+
+  /* ---- post block ---- */
+  .post{margin-top:52px}
+  .post-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+  .post-no{
+    font-family:var(--jp-sharp);font-weight:800;font-size:20px;color:var(--ai);
+    font-variant-numeric:tabular-nums;
+  }
+  .post-title{font-family:var(--jp-sharp);font-weight:800;font-size:19px;margin:0}
+  .post-sub{font-size:13px;color:var(--sumi-soft);margin:6px 0 18px;max-width:62ch;line-height:1.6}
+
+  /* ---- carousel row ---- */
+  .rail{
+    display:flex;gap:16px;overflow-x:auto;padding:6px 2px 18px;
+    scroll-snap-type:x mandatory;scrollbar-width:thin;
+  }
+  .rail::-webkit-scrollbar{height:8px}
+  .rail::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+
+  /* ---- the slide card (4:5, mimics 1080x1350) ---- */
+  .card{
+    position:relative;flex:0 0 auto;width:284px;aspect-ratio:4/5;
+    border-radius:14px;padding:22px 22px 46px;
+    display:flex;flex-direction:column;
+    scroll-snap-align:start;overflow:hidden;
+    box-shadow:0 6px 22px rgba(32,29,25,.10);
+    transition:transform .18s ease,box-shadow .18s ease;
+  }
+  .card:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(32,29,25,.16)}
+  .card.paper{background:var(--washi);color:var(--sumi);border:1px solid var(--line)}
+  .card.ink{background:var(--ai);color:#F6F1E7}
+  .card.ink .kicker{color:var(--sora)}
+  .card.cta{background:var(--washi);color:var(--sumi);border:1px solid var(--line)}
+
+  /* card chrome */
+  .kicker{
+    font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;
+    color:var(--ai);
+  }
+  .slidenum{
+    position:absolute;top:18px;right:20px;font-size:10px;letter-spacing:.08em;
+    font-variant-numeric:tabular-nums;opacity:.6;font-weight:600;
+  }
+  .body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:8px 0}
+  .handle{
+    position:absolute;left:22px;bottom:16px;font-size:9.5px;letter-spacing:.12em;
+    font-weight:600;opacity:.72;
+  }
+  .save{
+    position:absolute;right:20px;bottom:14px;display:flex;align-items:center;gap:5px;
+    font-size:9px;letter-spacing:.08em;opacity:.7;
+  }
+  .save svg{width:11px;height:11px}
+
+  /* type inside cards */
+  .hook{font-family:var(--en);font-weight:800;font-size:21px;line-height:1.24;letter-spacing:-.01em;text-wrap:balance}
+  .kana{
+    font-family:var(--jp);font-weight:800;line-height:1;letter-spacing:.02em;
+    font-size:52px;
+  }
+  .kana.dual{font-size:38px;display:flex;flex-direction:column;gap:10px}
+  .kana .vs{font-family:var(--en);font-size:13px;font-weight:700;opacity:.55;letter-spacing:.05em}
+  .romaji{font-family:var(--en);font-size:12px;letter-spacing:.14em;text-transform:lowercase;opacity:.7;font-weight:600}
+  .bignum{font-family:var(--jp-sharp);font-weight:800;font-size:60px;line-height:.92;color:var(--sora)}
+  .txt{font-size:13.5px;line-height:1.6}
+  .txt.sm{font-size:12.5px;color:var(--sumi-soft)}
+  .lead-word{font-weight:800;color:var(--ai)}
+
+  /* example sentence block */
+  .ex{display:flex;flex-direction:column;gap:10px}
+  .ex .jp{font-family:var(--jp);font-size:16px;font-weight:700;line-height:1.5}
+  .ex .en{font-size:11.5px;color:var(--sumi-soft);line-height:1.5;font-style:italic}
+  .ex .div{height:1px;background:var(--line)}
+
+  /* ---- signature sound-mechanic diagram ---- */
+  .mech{display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center}
+  .mech .kana{font-size:40px}
+  .ring{
+    display:inline-block;padding:.04em .16em;border:2px dashed var(--shu);
+    border-radius:50%;color:var(--shu);
+  }
+  .mech .note{
+    font-size:11px;letter-spacing:.06em;color:var(--shu);font-weight:700;
+    display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;
+  }
+  .repeat{display:inline-flex;align-items:center;gap:8px;font-family:var(--jp);font-size:34px;font-weight:800}
+  .repeat .beat{color:var(--ai)}
+  .repeat .arc{color:var(--sora)}
+
+  /* CTA slide */
+  .cta .cta-big{font-family:var(--jp-sharp);font-weight:800;font-size:22px;line-height:1.3;text-wrap:balance}
+  .cta .pill{
+    align-self:flex-start;background:var(--shu);color:#fff;font-weight:700;
+    font-size:12px;letter-spacing:.03em;padding:9px 15px;border-radius:999px;
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .cta .pill svg{width:12px;height:12px}
+
+  .foot-note{
+    margin-top:44px;padding:22px 24px;background:var(--washi-2);
+    border:1px solid var(--line);border-radius:4px;font-size:12.5px;
+    line-height:1.7;color:var(--sumi-soft);
+  }
+  .foot-note strong{color:var(--sumi)}
+  @media (prefers-reduced-motion:reduce){.card{transition:none}.card:hover{transform:none}}
+</style>
+
+<div class="wrap">
+ <div class="inner">
+
+  <p class="eyebrow">Instagram Carousel · Layout Sample</p>
+  <h1>オノマトペ解説SNS — 投稿 1〜3 レイアウト</h1>
+  <p class="lede">Canva制作の見本。各投稿はInstagramカルーセル（左→右にスワイプ）。5枚構成の型は <span style="color:var(--ai);font-weight:700">Hook → Feeling → Sound&nbsp;logic → Example → CTA</span> で全投稿共通。表紙は藍地に反転、中身は和紙地、最後のCTAに朱を1点だけ効かせる。</p>
+  <span class="concept">Feel the word, not just its meaning.</span>
+
+  <!-- DESIGN SYSTEM LEGEND -->
+  <div class="legend">
+    <div>
+      <h3>Palette</h3>
+      <div class="swatch-row">
+        <div class="swatch"><span class="chip" style="background:#F3EEE3"></span><small>washi F3EEE3</small></div>
+        <div class="swatch"><span class="chip" style="background:#201D19"></span><small>sumi 201D19</small></div>
+        <div class="swatch"><span class="chip" style="background:#25406B"></span><small>藍 25406B</small></div>
+        <div class="swatch"><span class="chip" style="background:#8CBBD4"></span><small>空 8CBBD4</small></div>
+        <div class="swatch"><span class="chip" style="background:#E5623D"></span><small>朱 E5623D</small></div>
+      </div>
+    </div>
+    <div>
+      <h3>Type roles</h3>
+      <p><span class="k">見出し/かな</span> — 丸ゴシック太（Hiragino Maru Gothic）<br>
+      <span class="k">英語Hook</span> — システムsans 800<br>
+      <span class="k">ラベル</span> — 大文字 / letter-spacing .2em</p>
+    </div>
+    <div>
+      <h3>固定要素（毎投稿）</h3>
+      <p>左下に <span class="k">@feel.japanese</span> / 右下に <span class="k">🔖 save</span> / 右上に <span class="k">スライド番号</span>。<br>
+      朱は<span class="k">CTAと音象徴の丸囲み</span>だけに使う。</p>
+    </div>
+  </div>
+
+  <!-- ================= POST 1 ================= -->
+  <div class="post">
+    <div class="post-head">
+      <span class="post-no">01</span>
+      <h2 class="post-title">Intro — なぜオノマトペか</h2>
+    </div>
+    <p class="post-sub">掴みの1本。「英語150語 vs 日本語4,500語超」の落差で保存を誘い、しーん（音がない音）で締める。ブランドの世界観を宣言する回。</p>
+    <div class="rail">
+
+      <!-- P1 S1 Hook -->
+      <div class="card ink">
+        <span class="kicker">Hook</span><span class="slidenum">1 / 5</span>
+        <div class="body">
+          <span class="bignum">4,500+</span>
+          <div class="hook">Japanese has 4,500+ onomatopoeia.<br>English has ~150.</div>
+          <div class="txt" style="opacity:.85">Here's why that matters 👇</div>
+        </div>
+        <span class="handle">@feel.japanese</span>
+        <span class="save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P1 S2 Feeling -->
+      <div class="card paper">
+        <span class="kicker">Feeling</span><span class="slidenum">2 / 5</span>
+        <div class="body">
+          <div class="txt">They don't just <em>name</em> a sound —</div>
+          <div class="hook" style="font-size:19px;color:var(--ai)">they let you <span style="color:var(--shu)">feel</span> a sensation, texture, or mood.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P1 S3 Sound logic -->
+      <div class="card paper">
+        <span class="kicker">Sound logic</span><span class="slidenum">3 / 5</span>
+        <div class="body mech">
+          <div class="hook" style="font-size:18px">In Japanese, the <span class="lead-word">sound</span> carries the feeling.</div>
+          <div class="txt sm">The word doesn't describe the sensation from outside — it <em>is</em> the sensation.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P1 S4 Example -->
+      <div class="card paper">
+        <span class="kicker">Example</span><span class="slidenum">4 / 5</span>
+        <div class="body">
+          <div class="mech" style="align-items:flex-start;text-align:left">
+            <div class="kana" style="color:var(--ai)">しーん</div>
+            <div class="romaji">shiin</div>
+          </div>
+          <div class="txt">= the sound of <strong>total silence</strong>.</div>
+          <div class="txt sm">Yes — a word for no sound at all.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P1 S5 CTA -->
+      <div class="card cta">
+        <span class="kicker">CTA</span><span class="slidenum">5 / 5</span>
+        <div class="body">
+          <div class="cta-big">Follow to <span style="color:var(--ai)">feel</span> Japanese —<br>not just memorize it.</div>
+          <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Save this</span>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= POST 2 ================= -->
+  <div class="post">
+    <div class="post-head">
+      <span class="post-no">02</span>
+      <h2 class="post-title">どきどき vs わくわく — 心臓の音</h2>
+    </div>
+    <p class="post-sub">感情のオノマトペ。畳語（くり返し）が「感覚が続く」を作る、という音象徴の第一歩を見せる回。参加型CTAでコメントを誘う。</p>
+    <div class="rail">
+
+      <!-- P2 S1 Hook -->
+      <div class="card ink">
+        <span class="kicker">Hook</span><span class="slidenum">1 / 5</span>
+        <div class="body">
+          <div class="kana dual">
+            <span style="color:var(--sora)">どきどき</span>
+            <span class="vs">vs</span>
+            <span style="color:#F6F1E7">わくわく</span>
+          </div>
+          <div class="hook" style="font-size:17px">Your heart, in Japanese.</div>
+        </div>
+        <span class="handle">@feel.japanese</span>
+        <span class="save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P2 S2 Feeling -->
+      <div class="card paper">
+        <span class="kicker">Feeling</span><span class="slidenum">2 / 5</span>
+        <div class="body" style="gap:16px">
+          <div>
+            <div class="kana" style="font-size:28px;color:var(--ai)">どきどき</div>
+            <div class="txt sm">heart pounding — nervous <em>or</em> thrilled.</div>
+          </div>
+          <div>
+            <div class="kana" style="font-size:28px;color:var(--sora)">わくわく</div>
+            <div class="txt sm">bubbly excitement before something fun.</div>
+          </div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P2 S3 Sound logic -->
+      <div class="card paper">
+        <span class="kicker">Sound logic</span><span class="slidenum">3 / 5</span>
+        <div class="body mech">
+          <div class="repeat"><span class="beat">どき</span><span class="arc">↻</span><span class="beat">どき</span></div>
+          <div class="note">the repeat = it keeps going</div>
+          <div class="txt sm">Reduplicated words (どき・どき) mean the feeling repeats — beat after beat, on and on.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P2 S4 Example -->
+      <div class="card paper">
+        <span class="kicker">Example</span><span class="slidenum">4 / 5</span>
+        <div class="body ex">
+          <div>
+            <div class="jp">面接前、<span style="color:var(--ai)">どきどき</span>した。</div>
+            <div class="en">"Before the interview, my heart was pounding."</div>
+          </div>
+          <div class="div"></div>
+          <div>
+            <div class="jp">旅行が楽しみで<span style="color:var(--sora)">わくわく</span>する。</div>
+            <div class="en">"I'm buzzing with excitement about the trip."</div>
+          </div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P2 S5 CTA -->
+      <div class="card cta">
+        <span class="kicker">CTA</span><span class="slidenum">5 / 5</span>
+        <div class="body">
+          <div class="cta-big">Which are you<br>feeling today?</div>
+          <span class="pill" style="background:var(--ai)">💬 Comment どきどき / わくわく</span>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= POST 3 ================= -->
+  <div class="post">
+    <div class="post-head">
+      <span class="post-no">03</span>
+      <h2 class="post-title">しーん — 静寂の音</h2>
+    </div>
+    <p class="post-sub">「音がない音」という掴みの強い回。長音ー＋撥音んが"余韻・残響"を生む、という音象徴を署名の丸囲み図解で見せる。</p>
+    <div class="rail">
+
+      <!-- P3 S1 Hook -->
+      <div class="card ink">
+        <span class="kicker">Hook</span><span class="slidenum">1 / 5</span>
+        <div class="body">
+          <div class="kana" style="color:var(--sora);font-size:56px">しーん</div>
+          <div class="romaji" style="opacity:.8">shiin</div>
+          <div class="hook" style="font-size:18px">The word for the sound of <span style="color:#fff">SILENCE</span> 🤫</div>
+        </div>
+        <span class="handle">@feel.japanese</span>
+        <span class="save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P3 S2 Feeling -->
+      <div class="card paper">
+        <span class="kicker">Feeling</span><span class="slidenum">2 / 5</span>
+        <div class="body">
+          <div class="hook" style="font-size:18px;color:var(--ai)">A room so quiet<br>it <span style="color:var(--shu)">rings</span>.</div>
+          <div class="txt sm">That heavy pause after a joke lands flat? In Japanese, that silence has a sound: <span class="lead-word">しーん</span>.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P3 S3 Sound logic (signature diagram) -->
+      <div class="card paper">
+        <span class="kicker">Sound logic</span><span class="slidenum">3 / 5</span>
+        <div class="body mech">
+          <div class="kana" style="color:var(--ai);font-size:44px">し<span class="ring">ー</span><span class="ring">ん</span></div>
+          <div class="note">↑ lingering resonance</div>
+          <div class="txt sm">The long vowel <strong>ー</strong> + the nasal <strong>ん</strong> make the silence <em>stretch and echo</em> — you can feel it hang in the air.</div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P3 S4 Example -->
+      <div class="card paper">
+        <span class="kicker">Example</span><span class="slidenum">4 / 5</span>
+        <div class="body ex">
+          <div>
+            <div class="jp">冗談を言ったら、<br>教室が<span style="color:var(--ai)">しーん</span>となった。</div>
+            <div class="en">"I told a joke, and the classroom went dead silent."</div>
+          </div>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+        <span class="save" style="color:var(--sumi)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>save</span>
+      </div>
+
+      <!-- P3 S5 CTA -->
+      <div class="card cta">
+        <span class="kicker">CTA</span><span class="slidenum">5 / 5</span>
+        <div class="body">
+          <div class="cta-big">Save it for your next<br>awkward silence.</div>
+          <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Save 🔖</span>
+        </div>
+        <span class="handle" style="color:var(--sumi)">@feel.japanese</span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="foot-note">
+    <strong>Canvaへの落とし込み方</strong> — このレイアウトを2種のテンプレに固定：<strong>A=ペア対比型</strong>（P2/P3の「どきどき vs わくわく」等）、<strong>B=単語深掘り型</strong>（P1）。表紙(藍)・中身(和紙)・CTA(朱)の3トーンと、右上番号・左下@・右下saveの固定位置さえ守れば、テキスト差し替えだけで量産できる＝週2〜4時間の生命線。<br>
+    <strong>署名パーツ</strong> — Sound logicの「音象徴を朱の破線で丸囲み」（しーんのー・ん）は全投稿で使い回す視覚記号。ここがオノマトペ他アカウントとの差別化点。
+  </div>
+
+ </div>
+</div>
