@@ -50,13 +50,18 @@ from utils import load_config
 class UnifiedProcessor:
     """Unified podcast processing with multiple fallback options."""
     
-    def __init__(self):
+    def __init__(self, llm_backend: str = "gemini"):
         self.spotify_client = SpotifyClient()
         self.listen_notes_client = ListenNotesClient()
         self.notion_client = NotionClient()
         self.itunes_client = iTunesRSSClient()
-        self._init_gemini()
-        
+        self.llm_backend = llm_backend
+        self.llm_ready = False
+        if self.llm_backend == "lmstudio":
+            self._init_lmstudio()
+        else:
+            self._init_gemini()
+
         self.episode_info = None
         self.transcript = None
         self.timestamps_raw = []
@@ -97,6 +102,7 @@ class UnifiedProcessor:
                     client.models.generate_content(model=name, contents="ping")
                     self.gemini_client = client
                     self.gemini_model_name = name
+                    self.llm_ready = True
                     print(f"✅ Gemini initialized: {name}")
                     break
                 except Exception:
@@ -107,6 +113,39 @@ class UnifiedProcessor:
             print(f"⚠️  WARNING: Gemini init failed: {e}. Output will be PLACEHOLDERS.")
             self.gemini_client = None
             self.gemini_model_name = None
+
+    def _init_lmstudio(self):
+        """Initialize LM Studio (local, OpenAI-compatible server) as the LLM backend.
+
+        Free/local alternative to Gemini for when the Gemini free-tier daily
+        quota (20 requests/day/model) is exhausted. Requires LM Studio's local
+        server to be running (App > Developer > Start Server) with a model loaded.
+        """
+        self.lmstudio_base_url = None
+        self.lmstudio_model = None
+        try:
+            config = load_config()
+            lmstudio_cfg = config.get("lmstudio") or {}
+            base_url = lmstudio_cfg.get("base_url", "http://localhost:1234/v1")
+            model = lmstudio_cfg.get("model")
+
+            import requests
+            resp = requests.get(f"{base_url}/models", timeout=5)
+            resp.raise_for_status()
+            available = [m.get("id") for m in resp.json().get("data", [])]
+            if not model:
+                # fall back to the first non-embedding model reported by the server
+                model = next((m for m in available if "embed" not in (m or "")), None)
+            if not model or model not in available:
+                print(f"⚠️  WARNING: LM Studio model '{model}' not found among loaded models {available}. Output will be PLACEHOLDERS.")
+                return
+
+            self.lmstudio_base_url = base_url
+            self.lmstudio_model = model
+            self.llm_ready = True
+            print(f"✅ LM Studio initialized: {model} ({base_url})")
+        except Exception as e:
+            print(f"⚠️  WARNING: LM Studio init failed: {e}. Is LM Studio's local server running? Output will be PLACEHOLDERS.")
 
     _gemini_call_times: List[float] = []  # class-level shared rate-limit window (set on UnifiedProcessor)
 
@@ -177,6 +216,36 @@ class UnifiedProcessor:
                 return None
         print(f"⚠️ Gemini gave up: {last_err}")
         return None
+
+    def _lmstudio_generate(self, prompt: str) -> Optional[str]:
+        """Generate text via a local LM Studio server (OpenAI-compatible /chat/completions)."""
+        if not self.lmstudio_base_url or not self.lmstudio_model:
+            return None
+
+        import requests
+        try:
+            resp = requests.post(
+                f"{self.lmstudio_base_url}/chat/completions",
+                json={
+                    "model": self.lmstudio_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 4096,
+                },
+                timeout=180,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"]
+            return text.strip() if text else None
+        except Exception as e:
+            print(f"⚠️ LM Studio error: {e}")
+            return None
+
+    def _llm_generate(self, prompt: str) -> Optional[str]:
+        """Dispatch to the configured LLM backend (gemini or lmstudio)."""
+        if self.llm_backend == "lmstudio":
+            return self._lmstudio_generate(prompt)
+        return self._gemini_generate(prompt)
 
     def _split_text(self, text: str, max_chars: int) -> List[str]:
         """Split long text into chunks, trying to respect sentence boundaries."""
@@ -252,7 +321,7 @@ class UnifiedProcessor:
     def _generate_summary_and_timestamps(self, language: str):
         """Generate summary and timestamps (chapter titles) from transcript via Gemini."""
         self.gemini_ok = True  # set False on any failure below
-        if not self.gemini_client:
+        if not self.llm_ready:
             self.chapters = self._generate_chapter_placeholders()
             self.summary = self._generate_summary_placeholder()
             self.gemini_ok = False
@@ -287,7 +356,7 @@ class UnifiedProcessor:
 出力:
 - ...
 """.strip()
-            out = self._gemini_generate(prompt)
+            out = self._llm_generate(prompt)
             if out:
                 chunk_summaries.append(out)
 
@@ -324,7 +393,7 @@ Summary:
 Key Takeaways:
 - ...
 """.strip()
-        final = self._gemini_generate(final_prompt)
+        final = self._llm_generate(final_prompt)
         if final:
             # SummaryとKey Takeawaysを分割
             parts = re.split(r'Key Takeaways:\s*\n', final, maxsplit=1)
@@ -371,7 +440,7 @@ Key Takeaways:
 
 出力:
 """.strip()
-        chapters = self._gemini_generate(chapter_prompt)
+        chapters = self._llm_generate(chapter_prompt)
         if chapters:
             self.chapters = chapters.strip()
         else:
@@ -384,8 +453,8 @@ Key Takeaways:
     ]
 
     def _classify_category(self, language: str) -> str:
-        """Classify episode into a category using Gemini."""
-        if not self.gemini_client:
+        """Classify episode into a category using the configured LLM backend."""
+        if not self.llm_ready:
             return "Others"
 
         title = (self.episode_info or {}).get("title", "")
@@ -401,7 +470,7 @@ Title: {title}
 Podcast: {show}
 Content: {transcript_head}"""
 
-        result = self._gemini_generate(prompt)
+        result = self._llm_generate(prompt)
         if result:
             category = result.strip().strip('"').strip("'")
             if category in self.VALID_CATEGORIES:
@@ -1057,10 +1126,11 @@ Examples:
     parser.add_argument('--audio-file', type=str, help='Local audio file (skip Listen Notes)')
     parser.add_argument('--whisper-model', type=str, default='medium', choices=['tiny', 'base', 'small', 'medium', 'large'], help='Whisper model size')
     parser.add_argument('--no-notion', action='store_true', help='Skip Notion upload')
-    
+    parser.add_argument('--llm-backend', type=str, default='gemini', choices=['gemini', 'lmstudio'], help='LLM backend for summary/chapters/category (default: gemini)')
+
     args = parser.parse_args()
-    
-    processor = UnifiedProcessor()
+
+    processor = UnifiedProcessor(llm_backend=args.llm_backend)
     result = processor.process(
         spotify_url=args.spotify_url,
         language=args.language,
