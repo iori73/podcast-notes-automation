@@ -26,7 +26,7 @@
 ## コードの状態
 `process_unified.py`・`src/philosophy.py`・`src/verification.py`・`bin/podcast-notes`・`requirements.txt` などの作業は PR #3 で origin/main にマージ済み。`config/config.yaml`（APIキー・DB ID）は .gitignore で管理外。
 
-## 未マージPR（2026-10-10 時点・勝手にマージしない）
-- #5 docs: 運用状況(STATUS.md)を追加（このファイル。draft）
-- #4 fix(pipeline): stop matching unrelated local audio to wrong episode（他セッション）
-- #2 fix(remote): 自動起動をパス非依存にし、解除できないバグを修正（iOSリモート関連・開発は停止中）
+## PRの状況（2026-10-10 更新）
+- 未マージPR: なし（#5 STATUS.md・#4 ローカル音声の誤マッチ修正は squash マージ済み）。
+- #2（iOSリモートの自動起動修正）はクローズ。iOSリモートアプリ開発は 2026-09-05 から停止中で、再開時は worktree-ios-remote-app を現 main にリベースして作り直す。
+- #4 のあと `_find_local_audio` は、番組名の一致かスコア8以上でないとローカル音声を採用しない。`tests/` はほぼ空なので、回帰テストはまだ無い。
