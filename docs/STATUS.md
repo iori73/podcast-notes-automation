@@ -23,5 +23,5 @@
 4. 収集結果は `evaluate_script` の `filePath` でプロジェクト配下にJSON保存（プロジェクト外は不可）。
 5. `<button><span>ts</span></button><p>text</p>` のHTMLに組み直し、`python process_unified.py "<URL>" --html-file <file>` に渡す。日本語の字間スペースはパイプライン側で整形される。
 
-## 未コミットの作業（main の作業ツリー）
-`process_unified.py` / `src/integrations/itunes_rss.py` / `src/integrations/notion_client.py` の変更と、`src/philosophy.py`・`src/verification.py`・`bin/`・`config/`・`requirements.txt` は main では未コミット。このドキュメントの更新とは無関係なので触っていない。
+## コードの状態
+`process_unified.py`・`src/philosophy.py`・`src/verification.py`・`bin/podcast-notes`・`requirements.txt` などの作業は PR #3 で origin/main にマージ済み。`config/config.yaml`（APIキー・DB ID）は .gitignore で管理外。
