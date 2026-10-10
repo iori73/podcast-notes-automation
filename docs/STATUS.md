@@ -25,3 +25,8 @@
 
 ## コードの状態
 `process_unified.py`・`src/philosophy.py`・`src/verification.py`・`bin/podcast-notes`・`requirements.txt` などの作業は PR #3 で origin/main にマージ済み。`config/config.yaml`（APIキー・DB ID）は .gitignore で管理外。
+
+## 未マージPR（2026-10-10 時点・勝手にマージしない）
+- #5 docs: 運用状況(STATUS.md)を追加（このファイル。draft）
+- #4 fix(pipeline): stop matching unrelated local audio to wrong episode（他セッション）
+- #2 fix(remote): 自動起動をパス非依存にし、解除できないバグを修正（iOSリモート関連・開発は停止中）
