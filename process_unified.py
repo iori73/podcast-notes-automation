@@ -929,39 +929,54 @@ Content: {transcript_head}"""
         
         title = self.episode_info.get('title', '')
         show_name = self.episode_info.get('show_name', '')
-        
-        # Extract keywords
+
+        # Extract keywords, dropping short/common English words that cause
+        # false-positive matches against unrelated files (e.g. "is", "here").
+        STOPWORDS = {
+            'the', 'is', 'in', 'at', 'to', 'we', 'it', 'he', 'she', 'of', 'on',
+            'an', 'as', 'are', 'was', 'be', 'by', 'or', 'if', 'this', 'that',
+            'with', 'for', 'and', 'here', 'what', 'its', 'how', 'you', 'your',
+            'our', 'us', 'not', 'but', 'do', 'does', 'did', 'has', 'have',
+        }
         keywords = re.findall(r'[\u4e00-\u9fff]+', title)  # Japanese characters
-        keywords.extend(re.findall(r'[a-zA-Z]+', title))    # English words
+        keywords.extend(
+            kw for kw in re.findall(r'[a-zA-Z]+', title)
+            if len(kw) >= 3 and kw.lower() not in STOPWORDS
+        )
         keywords = [kw for kw in keywords if len(kw) >= 2]
-        
+
         best_match = None
         best_score = 0
-        
+
         for mp3_file in downloads_dir.glob('*.mp3'):
             file_name = mp3_file.name.lower()
             score = 0
-            
+
             # Direct title match
             if title.lower() in file_name or file_name in title.lower():
                 score += 10
-            
+
             # Keyword matching
             for kw in keywords:
                 if kw.lower() in file_name:
                     score += len(kw)
-            
+
             # Show name matching
             if show_name and show_name.lower() in file_name:
                 score += 5
-            
+
             if score > best_score:
                 best_score = score
                 best_match = mp3_file
-        
-        if best_score >= 3:  # Minimum threshold
+
+        # Require the show name to actually match, or a substantial keyword
+        # overlap \u2014 a low bar here previously matched unrelated episodes
+        # (e.g. a couple of stray short-word hits) and fed the wrong audio
+        # into Whisper.
+        show_matched = bool(show_name) and show_name.lower() in (best_match.name.lower() if best_match else '')
+        if best_match and (show_matched or best_score >= 8):
             return best_match
-        
+
         return None
     
     def _transcribe_with_whisper(self, audio_path: str, language: str, model_size: str) -> dict:
