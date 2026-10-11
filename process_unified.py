@@ -930,19 +930,19 @@ Content: {transcript_head}"""
         title = self.episode_info.get('title', '')
         show_name = self.episode_info.get('show_name', '')
 
-        # Extract keywords, dropping short/common English words that cause
-        # false-positive matches against unrelated files (e.g. "is", "here").
         STOPWORDS = {
-            'the', 'is', 'in', 'at', 'to', 'we', 'it', 'he', 'she', 'of', 'on',
-            'an', 'as', 'are', 'was', 'be', 'by', 'or', 'if', 'this', 'that',
-            'with', 'for', 'and', 'here', 'what', 'its', 'how', 'you', 'your',
-            'our', 'us', 'not', 'but', 'do', 'does', 'did', 'has', 'have',
+            'the', 'a', 'an', 'is', 'in', 'on', 'of', 'to', 'it', 'at', 'by',
+            'for', 'and', 'or', 'what', 'how', 'why', 'who', 'which', 'this',
+            'that', 'with', 'are', 'was', 'were', 'be', 'as', 'its', 'like',
+            'really', 'here', 'from', 'but', 'not', 'you', 'your', 'about',
         }
+
+        # Extract keywords (English words must be >=4 chars and not a
+        # stopword, so coincidental short-word matches can't win)
         keywords = re.findall(r'[\u4e00-\u9fff]+', title)  # Japanese characters
-        keywords.extend(
-            kw for kw in re.findall(r'[a-zA-Z]+', title)
-            if len(kw) >= 3 and kw.lower() not in STOPWORDS
-        )
+        english_words = re.findall(r'[a-zA-Z]+', title)
+        english_words = [w for w in english_words if len(w) >= 4 and w.lower() not in STOPWORDS]
+        keywords.extend(english_words)
         keywords = [kw for kw in keywords if len(kw) >= 2]
 
         best_match = None
@@ -953,28 +953,33 @@ Content: {transcript_head}"""
             score = 0
 
             # Direct title match
-            if title.lower() in file_name or file_name in title.lower():
+            is_direct_title_match = title.lower() in file_name or file_name in title.lower()
+            if is_direct_title_match:
                 score += 10
 
             # Keyword matching
+            matched_keywords = 0
             for kw in keywords:
                 if kw.lower() in file_name:
                     score += len(kw)
+                    matched_keywords += 1
 
             # Show name matching
-            if show_name and show_name.lower() in file_name:
+            is_show_name_match = bool(show_name) and show_name.lower() in file_name
+            if is_show_name_match:
                 score += 5
+
+            # Require at least two distinct meaningful keyword matches (or a
+            # show-name/direct-title match) so a couple of coincidental
+            # substrings can't win on their own.
+            if matched_keywords < 2 and not is_show_name_match and not is_direct_title_match:
+                continue
 
             if score > best_score:
                 best_score = score
                 best_match = mp3_file
 
-        # Require the show name to actually match, or a substantial keyword
-        # overlap \u2014 a low bar here previously matched unrelated episodes
-        # (e.g. a couple of stray short-word hits) and fed the wrong audio
-        # into Whisper.
-        show_matched = bool(show_name) and show_name.lower() in (best_match.name.lower() if best_match else '')
-        if best_match and (show_matched or best_score >= 8):
+        if best_score >= 8:  # Minimum threshold (raised to avoid false positives)
             return best_match
 
         return None
