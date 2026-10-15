@@ -1,4 +1,4 @@
-# 運用状況（最終更新: 2026-10-10）
+# 運用状況（最終更新: 2026-10-15）
 
 他セッション・他の人が最新状況から話を始めるための記録。コードの構造ではなく「今どうなっているか」だけを書く。
 
@@ -13,14 +13,19 @@
 |---|---|---|
 | 2026-10-10 | 佐渡島庸平の好きのおすそ分け #67「アドバイスの罠」 | https://app.notion.com/p/67-3f5264826e0c8102a02cca225a43adae |
 | 2026-10-10 | 佐渡島庸平の好きのおすそ分け #90 山内朋樹さん「放っておく」 | https://app.notion.com/p/90-3f5264826e0c81e0a977fe8501ab1573 |
+| 2026-10-12 | 佐渡島庸平の好きのおすそ分け #28「身体からの微かな言葉を聞き取り、繊細なものを編集する」尹雄大さん その1 | https://app.notion.com/p/28-1-3f7264826e0c815a8956d396bcb5a205 |
 
-両方とも Listen Notes / iTunes に見つからず、Spotify の Transcript タブをブラウザで取得して `--html-file` で処理した（ソース: `spotify_html`）。
+3本とも Listen Notes / iTunes に見つからず、Spotify の Transcript タブをブラウザで取得して `--html-file` で処理した（ソース: `spotify_html`）。
+
+**未削除の失敗ページ（河野さんがNotionで手動削除する）**: #28の1回目の抽出失敗で、10文字の空ページ https://app.notion.com/p/28-1-3f7264826e0c81fb883ec6a0df90e2b1 が作られた。APIでの削除は権限で拒否されたため残っている。
 
 ## Spotify Transcript をブラウザで取得する手順（自動取得が両方失敗した時）
 1. chrome-devtools MCP で Spotify のエピソードURLを開く（自動化用Chromeにログイン済みセッションが残っている）。
 2. `[role="tab"]` の "Transcript" をクリック。
 3. 本文は `#transcript-panel` 内の子要素が多いdiv（タイムスタンプの `button` 行 → 本文の `div` 行）。リストは仮想化されているので、スクロールと収集を**1回の `evaluate_script` 内**で行う。
 4. 収集結果は `evaluate_script` の `filePath` でプロジェクト配下にJSON保存（プロジェクト外は不可）。
+   - 2026-10-12時点の構造: `div`グループ内で「タイムスタンプ`button`＋話者ラベル`span`」の行と、「本文 `span[dir="auto"]`」の行が別々の兄弟要素になっている。タイムスタンプ行の直後に続く本文行を連結する。
+   - **パイプラインに渡す前に、セグメント数と総文字数を必ず確認する**（#28で1件・18文字のまま実行し、空のNotionページが作られた）。
 5. `<button><span>ts</span></button><p>text</p>` のHTMLに組み直し、`python process_unified.py "<URL>" --html-file <file>` に渡す。日本語の字間スペースはパイプライン側で整形される。
 
 ## コードの状態
