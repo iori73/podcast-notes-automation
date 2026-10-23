@@ -169,7 +169,7 @@ class UnifiedProcessor:
                 print("   Fix: pip install google-genai  (also listed in requirements.txt)")
                 return
 
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=api_key, http_options={"timeout": 120_000})
             for name in ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
                 try:
                     client.models.generate_content(model=name, contents="ping")
@@ -295,7 +295,9 @@ class UnifiedProcessor:
                 if m:
                     wait_s = float(m.group(1)) + 2
                 is_rate = ("429" in msg or "RESOURCE_EXHAUSTED" in msg
-                           or "503" in msg or "UNAVAILABLE" in msg)
+                           or "503" in msg or "UNAVAILABLE" in msg
+                           or "504" in msg or "DEADLINE_EXCEEDED" in msg
+                           or "timeout" in msg.lower() or "timed out" in msg.lower())
                 if attempt < max_attempts and is_rate:
                     print(f"⏳ Gemini rate/avail issue (attempt {attempt}/{max_attempts}), sleeping {wait_s:.0f}s...")
                     _time.sleep(wait_s)
