@@ -209,6 +209,7 @@ class SpotifyClient:
         Used when the Web API is unavailable (e.g. the app-owner-premium 403).
         Returns the same dict shape as get_episode_info, or None on failure.
         """
+        import html as _html
         import re as _re
         import requests as _requests
 
@@ -228,7 +229,8 @@ class SpotifyClient:
                     + r'["\'][^>]+content=["\']([^"\']*)["\']',
                     html,
                 )
-                return m.group(1) if m else ""
+                # Attribute values are HTML-escaped (e.g. &#x27;); decode them.
+                return _html.unescape(m.group(1)) if m else ""
 
             title = _meta("og:title")
             if not title:
