@@ -72,6 +72,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from datetime import datetime
 import yaml
 import os
+import re
 
 
 def load_config():
@@ -79,6 +80,14 @@ def load_config():
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
     with open(config_path, "r") as file:
         return yaml.safe_load(file)
+
+
+_JA_CHARS = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]")
+
+
+def guess_language(text):
+    """Return "ja" if text contains kana/kanji, else "en"."""
+    return "ja" if _JA_CHARS.search(text or "") else "en"
 
 
 class SpotifyClient:
@@ -240,7 +249,11 @@ class SpotifyClient:
                 "description": raw_desc,
                 "release_date": "",  # not exposed via OpenGraph
                 "duration_ms": duration_ms,
-                "language": "ja",  # OG has no language; caller may override
+                # OG has no language field. Guess from the text instead of
+                # hard-coding "ja": the API 403 sends every episode here, and a
+                # fixed "ja" forced Whisper to render English audio as Japanese
+                # (e.g. "Medieval Heraldry", Incomplet Design History).
+                "language": guess_language(f"{title} {show_name}"),
             }
         except Exception as scrape_err:
             print(f"OpenGraph fallback failed: {scrape_err}")
