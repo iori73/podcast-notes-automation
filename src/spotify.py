@@ -71,6 +71,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from datetime import datetime
 import yaml
+import html
 import os
 import re
 
@@ -220,15 +221,16 @@ class SpotifyClient:
             headers = {"User-Agent": "facebookexternalhit/1.1"}
             resp = _requests.get(url, headers=headers, timeout=20)
             resp.raise_for_status()
-            html = resp.text
+            page_html = resp.text
 
             def _meta(prop):
                 m = _re.search(
                     r'<meta[^>]+(?:property|name)=["\']' + _re.escape(prop)
                     + r'["\'][^>]+content=["\']([^"\']*)["\']',
-                    html,
+                    page_html,
                 )
-                return m.group(1) if m else ""
+                # og:* values are HTML-escaped ("M&amp;A"); decode them.
+                return html.unescape(m.group(1)) if m else ""
 
             title = _meta("og:title")
             if not title:
