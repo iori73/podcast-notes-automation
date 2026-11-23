@@ -3,9 +3,47 @@ Whisper-based local transcription module.
 Provides speech-to-text and timestamp generation without external services.
 """
 
-import whisper
+import re
 from pathlib import Path
 from datetime import timedelta
+
+try:
+    import whisper
+except ImportError:  # allow importing the text helpers (and tests) without Whisper installed
+    whisper = None
+
+
+# Whisper (medium) hallucinates COTEN RADIO speaker labels ("深井 …", "樋口 …",
+# "ヤンヤン …") into unrelated Japanese conversational podcasts, at points where
+# the speaker changes. COTEN RADIO publishes transcripts in exactly that
+# "Name<space>utterance" format, so the model learned it from training data.
+# Whisper has no speaker diarization, so these labels are never real; worse,
+# Gemini then attributes statements to these non-existent people in the summary.
+# Real mentions ("深井さん", "深井龍之介") have no space after the name and are kept.
+FAKE_SPEAKER_LABELS = ("深井", "樋口", "ヤンヤン")
+# A label is the name followed by a space (label before an utterance), or the
+# name dangling at the end of a line/segment (label for the next utterance).
+# Also the bracketed form "【ヤンヤン】".
+_NAMES = "|".join(map(re.escape, FAKE_SPEAKER_LABELS))
+_FAKE_LABEL_RE = re.compile(
+    r"【(?:" + _NAMES + r")】[ 　]*"
+    r"|(?:" + _NAMES + r")(?:[ 　]+(?!龍之介|聖典)|[ 　]*$)",
+    re.MULTILINE,
+)
+
+
+def strip_fake_speaker_labels(text):
+    """Remove hallucinated COTEN-style speaker labels from Whisper output.
+
+    Returns (cleaned_text, number_of_labels_removed). Idempotent.
+    """
+    if not text:
+        return text, 0
+    cleaned, n = _FAKE_LABEL_RE.subn(" ", text)
+    if n:
+        cleaned = re.sub(r"[ 　]{2,}", " ", cleaned)
+        cleaned = re.sub(r"[ 　]+$", "", cleaned, flags=re.MULTILINE).strip()
+    return cleaned, n
 
 
 class WhisperTranscriber:
@@ -80,6 +118,14 @@ class WhisperTranscriber:
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
         )
         
+        # Strip hallucinated speaker labels before anything downstream (timestamps,
+        # Gemini summary) sees the text. See FAKE_SPEAKER_LABELS.
+        result["text"], removed = strip_fake_speaker_labels(result["text"])
+        for segment in result["segments"]:
+            segment["text"], _ = strip_fake_speaker_labels(segment["text"])
+        if removed:
+            print(f"   🧹 Removed {removed} hallucinated speaker labels ({'/'.join(FAKE_SPEAKER_LABELS)})")
+
         detected_language = result.get("language", language)
         print(f"✅ Transcription complete!")
         print(f"   Detected language: {detected_language}")
